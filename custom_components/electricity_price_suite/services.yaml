@@ -1,0 +1,339 @@
+refresh_timeline:
+  name: Refresh timeline
+  description: Refresh today and tomorrow slots from configured sources and merge by priority.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    sources:
+      required: false
+      description: Optional temporary source override list for this call only.
+      example: "[{\"id\": \"primary_action\", \"type\": \"entity_action\", \"priority\": 0}]"
+      selector:
+        object: {}
+
+add_source:
+  name: Add source
+  description: Add or update one source in the timeline source chain.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    id:
+      required: true
+      description: Unique source identifier inside the selected timeline.
+      example: "primary_action"
+      selector:
+        text: {}
+    priority:
+      required: false
+      description: Source priority (lower number wins in conflicts).
+      example: "0"
+      selector:
+        number:
+          min: 0
+          max: 9999
+          mode: box
+    source_type:
+      required: true
+      description: Source mode. Use entity_attribute for attributes or entity_action for service responses.
+      example: "entity_action"
+      selector:
+        select:
+          options:
+            - "entity_attribute"
+            - "entity_action"
+    source_entity_id:
+      required: false
+      description: Entity used by the source (required for entity_attribute, optional for entity_action).
+      example: "sensor.market_data_total_price"
+      selector:
+        entity: {}
+    attribute:
+      required: false
+      description: Attribute name that contains slot rows (entity_attribute only).
+      example: "data"
+      selector:
+        text: {}
+    action:
+      required: false
+      description: Service action to call (entity_action only), format domain.service.
+      example: "tibber.get_prices"
+      selector:
+        text: {}
+    response_path:
+      required: false
+      description: Dotted path to slot list in the action response.
+      example: "prices.zone_a"
+      selector:
+        text: {}
+    request_payload:
+      required: false
+      description: Additional payload forwarded to the action call.
+      example: "{\"start\": \"2026-03-06 00:00:00\", \"end\": \"2026-03-07 23:59:59\"}"
+      selector:
+        object: {}
+    time_key:
+      required: false
+      description: Key name used for slot start datetime in each row.
+      example: "start_time"
+      selector:
+        text: {}
+    price_key:
+      required: false
+      description: Key name used for price value in each row.
+      example: "price_per_kwh"
+      selector:
+        text: {}
+    inject_time_window:
+      required: false
+      description: Auto-inject start/end values for today+tomorrow into action payload.
+      example: "true"
+      selector:
+        boolean: {}
+    start_key:
+      required: false
+      description: Payload key to write injected start datetime into.
+      example: "start"
+      selector:
+        text: {}
+    end_key:
+      required: false
+      description: Payload key to write injected end datetime into.
+      example: "end"
+      selector:
+        text: {}
+    time_format:
+      required: false
+      description: Datetime format for injected start/end values.
+      example: "%Y-%m-%d %H:%M:%S"
+      selector:
+        text: {}
+
+list_sources:
+  name: List sources
+  description: List source IDs, or one source config when id is provided.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    id:
+      required: false
+      description: Optional source id. If omitted, only ids and count are returned.
+      example: "primary_action"
+      selector:
+        text: {}
+
+delete_source:
+  name: Delete source
+  description: Delete one source from the timeline source chain by id.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    id:
+      required: true
+      description: Source id to remove.
+      example: "fallback_attribute"
+      selector:
+        text: {}
+
+inject_slots:
+  name: Inject slots
+  description: Inject normalized slots directly into the timeline store.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    slots:
+      required: true
+      description: Slot list. Each item needs start_time and price_per_kwh.
+      example: "[{\"start_time\": \"2026-03-06T12:00:00+01:00\", \"price_per_kwh\": 0.2987}]"
+      selector:
+        object: {}
+    source_name:
+      required: false
+      description: Source id stored with injected rows.
+      example: "manual_inject"
+      selector:
+        text: {}
+    source_priority:
+      required: false
+      description: Priority rank for injected rows (lower rank replaces higher rank).
+      example: "5"
+      selector:
+        number:
+          min: 0
+          max: 9999
+          mode: box
+    is_primary:
+      required: false
+      description: Mark injected rows as primary-source rows.
+      example: "false"
+      selector:
+        boolean: {}
+
+optimize_device:
+  name: Optimize device
+  description: Compute best start time from stored timeline prices.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    device_name:
+      required: true
+      description: Logical device label used to build and persist the plan entity.
+      example: "Dishwasher"
+      selector:
+        text: {}
+    duration_minutes:
+      required: false
+      description: Runtime duration in minutes. Provide this or a usable profile source.
+      example: "170"
+      selector:
+        number:
+          min: 1
+          max: 2880
+          mode: box
+    energy_profile:
+      required: false
+      description: Optional direct profile list (weights/energy segments).
+      example: "[0.2, 1.0, 0.8, 0.3]"
+      selector:
+        object: {}
+    profile_slot_minutes:
+      required: false
+      description: Minutes per profile segment in energy_profile.
+      example: "5"
+      selector:
+        number:
+          min: 1
+          max: 60
+          mode: box
+    billing_slot_minutes:
+      required: false
+      description: Override billing slot length. If omitted, it is detected from timeline data.
+      example: "15"
+      selector:
+        number:
+          min: 1
+          max: 120
+          mode: box
+    consumption_profile_logger:
+      required: false
+      description: Load profile from consumption_profile_logger.get_profile.
+      example: "true"
+      selector:
+        boolean: {}
+    consumption_profile_entity:
+      required: false
+      description: Profile entity id when consumption_profile_logger is true.
+      example: "sensor.consumption_profile_logger_dishwasher_auto_profile"
+      selector:
+        entity: {}
+    consumption_profile_desired_slot_minutes:
+      required: false
+      description: Optional requested slot size forwarded to get_profile.
+      example: "15"
+      selector:
+        number:
+          min: 1
+          max: 120
+          mode: box
+    align_start_to_billing_slot:
+      required: false
+      description: If true, candidate starts are restricted to billing slot boundaries.
+      example: "false"
+      selector:
+        boolean: {}
+    epsilon_rel:
+      required: false
+      description: Relative tolerance for near-optimal earliest selection.
+      example: "0.01"
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 0.001
+          mode: box
+    prefer_earliest:
+      required: false
+      description: Pick earliest candidate within epsilon threshold instead of strict minimum.
+      example: "true"
+      selector:
+        boolean: {}
+    start_mode:
+      required: false
+      description: "Start anchor mode: now or in."
+      example: "now"
+      selector:
+        select:
+          options:
+            - "now"
+            - "in"
+    start_in_minutes:
+      required: false
+      description: Offset used when start_mode is in.
+      example: "30"
+      selector:
+        number:
+          min: 0
+          max: 10080
+          mode: box
+    deadline_mode:
+      required: false
+      description: Relative deadline mode.
+      example: "finish_within"
+      selector:
+        select:
+          options:
+            - "none"
+            - "start_within"
+            - "finish_within"
+    deadline_minutes:
+      required: false
+      description: Relative deadline value for selected deadline_mode.
+      example: "360"
+      selector:
+        number:
+          min: 0
+          max: 10080
+          mode: box
+    latest_start:
+      required: false
+      description: Absolute latest allowed start datetime (ISO).
+      example: "2026-03-06T21:30:00+01:00"
+      selector:
+        text: {}
+    latest_finish:
+      required: false
+      description: Absolute latest allowed finish datetime (ISO).
+      example: "2026-03-06T23:30:00+01:00"
+      selector:
+        text: {}
+    dry_run:
+      required: false
+      description: Run optimization and persist plan metadata with dry_run marker.
+      example: "false"
+      selector:
+        boolean: {}
+
+manage_plan:
+  name: Manage plan
+  description: Reset or delete existing plan entities.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    reset:
+      required: false
+      description: Reset selected plan entities (keep entity, clear planned start and runtime data).
+      example: "true"
+      selector:
+        boolean: {}
+    delete:
+      required: false
+      description: Delete selected plan entities and remove persisted plan payload.
+      example: "false"
+      selector:
+        boolean: {}

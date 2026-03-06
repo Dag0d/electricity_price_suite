@@ -1,0 +1,306 @@
+{
+  "title": "Electricity Price Suite",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Electricity Price Suite",
+        "description": "Erstelle eine Timeline und konfiguriere das Grundverhalten.",
+        "data": {
+          "timeline_name": "Timeline-Name",
+          "currency": "Währung",
+          "cache_retention_days": "Cache-Aufbewahrung (Tage)",
+          "round_decimals": "Preise auf Nachkommastellen runden",
+          "enable_current_price_sensor": "Current-Price-Sensor aktivieren"
+        }
+      },
+      "primary_type": {
+        "title": "Primärquelle konfigurieren",
+        "description": "Wähle, wie die primäre Preisquelle gelesen wird.\n\n**entity_action**\nEinen Service aufrufen und die Antwort parsen.\nBeispiel: offizielle Home Assistant Tibber-Integration via `tibber.get_prices`.\n\n**entity_attribute**\nSlots aus einem Entitätsattribut lesen.\nBeispiel: EPEX Spot Integrationen, die eine Slot-Liste in einem Attribut bereitstellen.\n\n**inject_only**\nKein automatisches Laden. Daten werden per `electricity_price_suite.inject_slots` übergeben.\nJedes Slot-Objekt muss mindestens `start_time` und `price_per_kwh` enthalten.\n\nSekundäre/Fallback-Quellen können später über `add_source` ergänzt werden.",
+        "data": {
+          "source_type": "Typ der Primärquelle"
+        }
+      },
+      "primary_inject": {
+        "title": "Primärquelle (Nur Inject)",
+        "description": "Nutze das, wenn Preise manuell über electricity_price_suite.inject_slots übergeben werden. Erforderliche Slot-Keys: start_time und price_per_kwh.",
+        "data": {
+          "id": "Quellen-ID",
+          "priority": "Priorität (0 = höchste)",
+          "time_key": "Zeit-Key im Slot-Objekt",
+          "price_key": "Preis-Key im Slot-Objekt"
+        }
+      },
+      "primary_attribute": {
+        "title": "Primärquelle (Entitätsattribut)",
+        "description": "Nutze das, wenn Preis-Slots in einem Entitätsattribut gespeichert sind (z. B. Attribut data mit Slot-Liste).",
+        "data": {
+          "id": "Quellen-ID",
+          "priority": "Priorität (0 = höchste)",
+          "source_entity_id": "Quell-Entität",
+          "attribute": "Attributname",
+          "time_key": "Zeit-Key im Slot-Objekt",
+          "price_key": "Preis-Key im Slot-Objekt"
+        }
+      },
+      "primary_action": {
+        "title": "Primärquelle (Service-Aktion)",
+        "description": "Nutze das, wenn Preise aus einer Service-Antwort kommen (z. B. tibber.get_prices). Response path zeigt auf die Slot-Liste in der Antwort.",
+        "data": {
+          "id": "Quellen-ID",
+          "priority": "Priorität (0 = höchste)",
+          "action": "Aktion (domain.service)",
+          "response_path": "Response-Pfad",
+          "source_entity_id": "Optionale Quell-Entität",
+          "request_payload_json": "Request-Payload JSON",
+          "inject_time_window": "Zeitfenster Heute/Morgen injizieren",
+          "start_key": "Start-Key",
+          "end_key": "End-Key",
+          "time_format": "Datetime-Format",
+          "time_key": "Zeit-Key im Slot-Objekt",
+          "price_key": "Preis-Key im Slot-Objekt"
+        }
+      }
+    },
+    "error": {
+      "invalid_json": "Request-Payload muss ein gültiges JSON-Objekt sein."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Electricity Price Suite Optionen",
+        "data": {
+          "currency": "Währung",
+          "cache_retention_days": "Cache-Aufbewahrung (Tage)",
+          "round_decimals": "Preise auf Nachkommastellen runden",
+          "enable_current_price_sensor": "Current-Price-Sensor aktivieren"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pricing_meta": {
+        "name": "Pricing Meta"
+      },
+      "current_price": {
+        "name": "Aktueller Preis"
+      },
+      "status": {
+        "name": "Status"
+      }
+    }
+  },
+  "services": {
+    "refresh_timeline": {
+      "name": "Timeline aktualisieren",
+      "description": "Slots für heute und morgen aus den konfigurierten Quellen laden.",
+      "fields": {
+        "sources": {
+          "name": "Quellen-Override",
+          "description": "Optional temporäre Quellenliste nur für diesen Aufruf."
+        }
+      }
+    },
+    "inject_slots": {
+      "name": "Slots injizieren",
+      "description": "Slot-Daten direkt in den Timeline-Store schreiben.",
+      "fields": {
+        "slots": {
+          "name": "Slots",
+          "description": "Liste von Slot-Objekten mit mindestens start_time und price_per_kwh."
+        },
+        "source_name": {
+          "name": "Quellenname",
+          "description": "Quellen-ID, die mit den injizierten Zeilen gespeichert wird."
+        },
+        "source_priority": {
+          "name": "Quellenpriorität",
+          "description": "Prioritätsrang für injizierte Zeilen (niedriger Rang ersetzt höheren Rang)."
+        },
+        "is_primary": {
+          "name": "Als Primärquelle behandeln",
+          "description": "Markiert injizierte Zeilen als Primärquellen-Zeilen."
+        }
+      }
+    },
+    "optimize_device": {
+      "name": "Gerät optimieren",
+      "description": "Besten Startzeitpunkt für ein Gerät berechnen.",
+      "fields": {
+        "device_name": {
+          "name": "Gerätename",
+          "description": "Logischer Gerätename für die Plan-Entity und Persistenz."
+        },
+        "duration_minutes": {
+          "name": "Dauer (Minuten)",
+          "description": "Laufzeit in Minuten. Entweder dieser Wert oder eine nutzbare Profilquelle ist erforderlich."
+        },
+        "energy_profile": {
+          "name": "Energieprofil",
+          "description": "Optionales direktes Profil als Liste von Gewichten/Energiesegmenten."
+        },
+        "profile_slot_minutes": {
+          "name": "Profil-Slot-Minuten",
+          "description": "Minuten pro Profilsegment im energy_profile."
+        },
+        "billing_slot_minutes": {
+          "name": "Abrechnungs-Slot-Minuten",
+          "description": "Überschreibt die Abrechnungs-Slotlänge. Ohne Angabe wird sie aus den Timeline-Daten erkannt."
+        },
+        "consumption_profile_logger": {
+          "name": "Consumption Profile Logger verwenden",
+          "description": "Lädt das Profil über consumption_profile_logger.get_profile statt über manuelle Profil-Payload."
+        },
+        "consumption_profile_entity": {
+          "name": "Consumption-Profile-Entität",
+          "description": "Profil-Entität, die verwendet wird, wenn consumption_profile_logger aktiv ist."
+        },
+        "consumption_profile_desired_slot_minutes": {
+          "name": "Gewünschte Profil-Slot-Minuten",
+          "description": "Optional angeforderte Slotgröße, die an get_profile weitergegeben wird."
+        },
+        "align_start_to_billing_slot": {
+          "name": "Start auf Abrechnungsslot ausrichten",
+          "description": "Wenn true, werden Kandidatenstarts auf Abrechnungsslot-Grenzen begrenzt."
+        },
+        "epsilon_rel": {
+          "name": "Epsilon (relativ)",
+          "description": "Relative Toleranz für die Auswahl eines frühen, nahezu optimalen Kandidaten."
+        },
+        "prefer_earliest": {
+          "name": "Frühesten Start bevorzugen",
+          "description": "Wählt den frühesten Kandidaten innerhalb der Epsilon-Schwelle statt des strikten globalen Minimums."
+        },
+        "start_mode": {
+          "name": "Startmodus",
+          "description": "Startanker: jetzt oder jetzt plus start_in_minutes."
+        },
+        "start_in_minutes": {
+          "name": "Start in Minuten",
+          "description": "Offset in Minuten für start_mode=in."
+        },
+        "deadline_mode": {
+          "name": "Deadline-Modus",
+          "description": "Relativer Deadline-Modus."
+        },
+        "deadline_minutes": {
+          "name": "Deadline-Minuten",
+          "description": "Relative Deadline in Minuten für den gewählten deadline_mode."
+        },
+        "latest_start": {
+          "name": "Spätester Start (ISO)",
+          "description": "Absolute Obergrenze für den Startzeitpunkt (ISO-Zeitstempel)."
+        },
+        "latest_finish": {
+          "name": "Spätestes Ende (ISO)",
+          "description": "Absolute Obergrenze für den Endzeitpunkt (ISO-Zeitstempel)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Führt die Optimierung aus und speichert den Plan mit dry_run-Markierung."
+        }
+      }
+    },
+    "manage_plan": {
+      "name": "Plan verwalten",
+      "description": "Bestehende Plan-Entitäten zurücksetzen oder löschen.",
+      "fields": {
+        "reset": {
+          "name": "Plan zurücksetzen",
+          "description": "Setzt ausgewählte Plan-Entitäten zurück (Entity bleibt erhalten, geplanter Start und Laufdaten werden geleert)."
+        },
+        "delete": {
+          "name": "Plan löschen",
+          "description": "Löscht ausgewählte Plan-Entitäten und entfernt die gespeicherte Plan-Payload."
+        }
+      }
+    },
+    "add_source": {
+      "name": "Quelle hinzufügen",
+      "description": "Eine Quelle zur Quellenkette hinzufügen oder aktualisieren.",
+      "fields": {
+        "id": {
+          "name": "Quellen-ID",
+          "description": "Eindeutige Quellen-ID innerhalb der ausgewählten Timeline."
+        },
+        "source_type": {
+          "name": "Quellentyp",
+          "description": "Quellenmodus. entity_attribute für Sensor-Attribute, entity_action für Service-Antworten."
+        },
+        "priority": {
+          "name": "Priorität",
+          "description": "Quellenpriorität (niedrigere Zahl gewinnt bei Konflikten)."
+        },
+        "source_entity_id": {
+          "name": "Quell-Entität",
+          "description": "Verwendete Entität der Quelle (für entity_attribute erforderlich, für entity_action optional)."
+        },
+        "attribute": {
+          "name": "Attribut",
+          "description": "Attributname mit Slot-Zeilen (nur entity_attribute)."
+        },
+        "action": {
+          "name": "Aktion",
+          "description": "Service-Aktion für den Abruf (nur entity_action), Format domain.service."
+        },
+        "response_path": {
+          "name": "Response-Pfad",
+          "description": "Punktpfad zur Slot-Liste in der Service-Antwort."
+        },
+        "request_payload": {
+          "name": "Request-Payload",
+          "description": "Zusätzliche Payload, die an den Service-Aufruf übergeben wird."
+        },
+        "time_key": {
+          "name": "Zeit-Key",
+          "description": "Schlüsselname für die Slot-Startzeit in jeder Zeile."
+        },
+        "price_key": {
+          "name": "Preis-Key",
+          "description": "Schlüsselname für den Preiswert in jeder Zeile."
+        },
+        "enabled": {
+          "name": "Aktiviert",
+          "description": "Aktiviert oder deaktiviert diese Quelle für Refresh-Läufe."
+        },
+        "inject_time_window": {
+          "name": "Zeitfenster injizieren",
+          "description": "Injiziert automatisch Start/Ende für heute+morgen in die Action-Payload."
+        },
+        "start_key": {
+          "name": "Start-Key",
+          "description": "Payload-Key für die injizierte Startzeit."
+        },
+        "end_key": {
+          "name": "End-Key",
+          "description": "Payload-Key für die injizierte Endzeit."
+        },
+        "time_format": {
+          "name": "Zeitformat",
+          "description": "Zeitformat für die injizierten Start/Ende-Werte."
+        }
+      }
+    },
+    "list_sources": {
+      "name": "Quellen auflisten",
+      "description": "Quellen-IDs oder eine vollständige Quellenkonfiguration anzeigen.",
+      "fields": {
+        "id": {
+          "name": "Quellen-ID",
+          "description": "Optionale Quellen-ID. Ohne Angabe werden nur IDs und Anzahl zurückgegeben."
+        }
+      }
+    },
+    "delete_source": {
+      "name": "Quelle löschen",
+      "description": "Eine Quelle aus der Quellenkette löschen.",
+      "fields": {
+        "id": {
+          "name": "Quellen-ID",
+          "description": "Zu löschende Quellen-ID."
+        }
+      }
+    }
+  }
+}

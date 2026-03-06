@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Legacy source files kept in repo root for reference only
+electricity_price_timeline.py
+runtime_price_optimizer.py

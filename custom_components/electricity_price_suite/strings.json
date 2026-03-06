@@ -1,0 +1,306 @@
+{
+  "title": "Electricity Price Suite",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Electricity Price Suite",
+        "description": "Create a timeline and set base behavior.",
+        "data": {
+          "timeline_name": "Timeline name",
+          "currency": "Currency",
+          "cache_retention_days": "Cache retention days",
+          "round_decimals": "Round prices to decimals",
+          "enable_current_price_sensor": "Enable current price sensor"
+        }
+      },
+      "primary_type": {
+        "title": "Configure Primary Source",
+        "description": "Choose how the primary price source is read.\n\n**entity_action**\nCall a service and parse its response.\nExample: official Home Assistant Tibber integration via `tibber.get_prices`.\n\n**entity_attribute**\nRead slots from an entity attribute.\nExample: EPEX Spot integrations exposing a slot list in an attribute.\n\n**inject_only**\nNo automatic fetching. Data is pushed via `electricity_price_suite.inject_slots`.\nEach slot object must include at least `start_time` and `price_per_kwh`.\n\nSecondary/fallback sources can be added later via `add_source`.",
+        "data": {
+          "source_type": "Primary source type"
+        }
+      },
+      "primary_inject": {
+        "title": "Primary Source (Inject Only)",
+        "description": "Use this if you push prices manually via electricity_price_suite.inject_slots. Required slot object keys are start_time and price_per_kwh.",
+        "data": {
+          "id": "Source ID",
+          "priority": "Priority (0 = highest)",
+          "time_key": "Time key in slot object",
+          "price_key": "Price key in slot object"
+        }
+      },
+      "primary_attribute": {
+        "title": "Primary Source (Entity Attribute)",
+        "description": "Use this when price slots are stored in an entity attribute (for example attribute data with slot list).",
+        "data": {
+          "id": "Source ID",
+          "priority": "Priority (0 = highest)",
+          "source_entity_id": "Source entity",
+          "attribute": "Attribute name",
+          "time_key": "Time key in slot object",
+          "price_key": "Price key in slot object"
+        }
+      },
+      "primary_action": {
+        "title": "Primary Source (Entity Action)",
+        "description": "Use this when prices come from a service response (for example tibber.get_prices). Response path points to the slot list in the returned data.",
+        "data": {
+          "id": "Source ID",
+          "priority": "Priority (0 = highest)",
+          "action": "Action (domain.service)",
+          "response_path": "Response path",
+          "source_entity_id": "Optional source entity",
+          "request_payload_json": "Request payload JSON",
+          "inject_time_window": "Inject today/tomorrow time window",
+          "start_key": "Start key",
+          "end_key": "End key",
+          "time_format": "Datetime format",
+          "time_key": "Time key in slot object",
+          "price_key": "Price key in slot object"
+        }
+      }
+    },
+    "error": {
+      "invalid_json": "Request payload must be valid JSON object."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Electricity Price Suite options",
+        "data": {
+          "currency": "Currency",
+          "cache_retention_days": "Cache retention days",
+          "round_decimals": "Round prices to decimals",
+          "enable_current_price_sensor": "Enable current price sensor"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "pricing_meta": {
+        "name": "Pricing Meta"
+      },
+      "current_price": {
+        "name": "Current Price"
+      },
+      "status": {
+        "name": "Status"
+      }
+    }
+  },
+  "services": {
+    "refresh_timeline": {
+      "name": "Refresh timeline",
+      "description": "Refresh today and tomorrow slots from configured sources.",
+      "fields": {
+        "sources": {
+          "name": "Sources override",
+          "description": "Optional temporary source list for this call."
+        }
+      }
+    },
+    "inject_slots": {
+      "name": "Inject slots",
+      "description": "Inject slot data directly into the timeline store.",
+      "fields": {
+        "slots": {
+          "name": "Slots",
+          "description": "List of slot objects with at least start_time and price_per_kwh."
+        },
+        "source_name": {
+          "name": "Source name",
+          "description": "Source id stored with injected rows."
+        },
+        "source_priority": {
+          "name": "Source priority",
+          "description": "Priority rank for injected rows (lower rank replaces higher rank)."
+        },
+        "is_primary": {
+          "name": "Treat as primary source",
+          "description": "Mark injected rows as primary-source rows."
+        }
+      }
+    },
+    "optimize_device": {
+      "name": "Optimize device",
+      "description": "Compute the best start time for a device.",
+      "fields": {
+        "device_name": {
+          "name": "Device name",
+          "description": "Logical device label used to build and persist the plan entity."
+        },
+        "duration_minutes": {
+          "name": "Duration (minutes)",
+          "description": "Runtime duration in minutes. Provide this or a usable energy profile source."
+        },
+        "energy_profile": {
+          "name": "Energy profile",
+          "description": "Optional direct profile list (weights/energy segments)."
+        },
+        "profile_slot_minutes": {
+          "name": "Profile slot minutes",
+          "description": "Minutes per profile segment in energy_profile."
+        },
+        "billing_slot_minutes": {
+          "name": "Billing slot minutes",
+          "description": "Override billing slot length. If omitted, it is detected from timeline data."
+        },
+        "consumption_profile_logger": {
+          "name": "Use Consumption Profile Logger",
+          "description": "Load profile from consumption_profile_logger.get_profile instead of manual profile payload."
+        },
+        "consumption_profile_entity": {
+          "name": "Consumption profile entity",
+          "description": "Profile entity id used when consumption_profile_logger is true."
+        },
+        "consumption_profile_desired_slot_minutes": {
+          "name": "Desired profile slot minutes",
+          "description": "Optional requested slot size forwarded to get_profile."
+        },
+        "align_start_to_billing_slot": {
+          "name": "Align start to billing slot",
+          "description": "If true, candidate starts are restricted to billing slot boundaries."
+        },
+        "epsilon_rel": {
+          "name": "Epsilon (relative)",
+          "description": "Relative tolerance for near-optimal earliest selection."
+        },
+        "prefer_earliest": {
+          "name": "Prefer earliest",
+          "description": "Pick earliest candidate within epsilon threshold instead of strict absolute minimum."
+        },
+        "start_mode": {
+          "name": "Start mode",
+          "description": "Start anchor mode: now or now plus start_in_minutes."
+        },
+        "start_in_minutes": {
+          "name": "Start in minutes",
+          "description": "Offset used when start_mode is in."
+        },
+        "deadline_mode": {
+          "name": "Deadline mode",
+          "description": "Relative deadline mode."
+        },
+        "deadline_minutes": {
+          "name": "Deadline minutes",
+          "description": "Relative deadline value for selected deadline_mode."
+        },
+        "latest_start": {
+          "name": "Latest start (ISO)",
+          "description": "Absolute latest allowed start datetime (ISO)."
+        },
+        "latest_finish": {
+          "name": "Latest finish (ISO)",
+          "description": "Absolute latest allowed finish datetime (ISO)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Run optimization and persist plan metadata with dry_run marker."
+        }
+      }
+    },
+    "manage_plan": {
+      "name": "Manage plan",
+      "description": "Reset or delete existing plan entities.",
+      "fields": {
+        "reset": {
+          "name": "Reset plan",
+          "description": "Reset selected plan entities (keep entity, clear planned start and runtime data)."
+        },
+        "delete": {
+          "name": "Delete plan",
+          "description": "Delete selected plan entities and remove persisted plan payload."
+        }
+      }
+    },
+    "add_source": {
+      "name": "Add source",
+      "description": "Add or update one source in the source chain.",
+      "fields": {
+        "id": {
+          "name": "Source ID",
+          "description": "Unique source identifier inside the selected timeline."
+        },
+        "source_type": {
+          "name": "Source type",
+          "description": "Source mode. Use entity_attribute for sensor attributes or entity_action for service responses."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "Source priority (lower number wins in conflicts)."
+        },
+        "source_entity_id": {
+          "name": "Source entity",
+          "description": "Entity used by the source (required for entity_attribute, optional for entity_action)."
+        },
+        "attribute": {
+          "name": "Attribute",
+          "description": "Attribute name that contains slot rows (entity_attribute only)."
+        },
+        "action": {
+          "name": "Action",
+          "description": "Service action to call (entity_action only), format domain.service."
+        },
+        "response_path": {
+          "name": "Response path",
+          "description": "Dotted path to slot list in the action response."
+        },
+        "request_payload": {
+          "name": "Request payload",
+          "description": "Additional payload forwarded to the action call."
+        },
+        "time_key": {
+          "name": "Time key",
+          "description": "Key name used for slot start datetime in each row."
+        },
+        "price_key": {
+          "name": "Price key",
+          "description": "Key name used for price value in each row."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Enable or disable this source in refresh runs."
+        },
+        "inject_time_window": {
+          "name": "Inject time window",
+          "description": "Auto-inject start/end values for today+tomorrow into action payload."
+        },
+        "start_key": {
+          "name": "Start key",
+          "description": "Payload key to write the injected start datetime into."
+        },
+        "end_key": {
+          "name": "End key",
+          "description": "Payload key to write the injected end datetime into."
+        },
+        "time_format": {
+          "name": "Time format",
+          "description": "Datetime format used for injected start/end payload values."
+        }
+      }
+    },
+    "list_sources": {
+      "name": "List sources",
+      "description": "List source IDs or one full source configuration.",
+      "fields": {
+        "id": {
+          "name": "Source ID",
+          "description": "Optional source id. If omitted, only ids and count are returned."
+        }
+      }
+    },
+    "delete_source": {
+      "name": "Delete source",
+      "description": "Delete one source from the source chain.",
+      "fields": {
+        "id": {
+          "name": "Source ID",
+          "description": "Source id to remove."
+        }
+      }
+    }
+  }
+}

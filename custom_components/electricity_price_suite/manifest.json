@@ -1,0 +1,12 @@
+{
+  "domain": "electricity_price_suite",
+  "name": "Electricity Price Suite",
+  "codeowners": ["@Dag0d"],
+  "config_flow": true,
+  "documentation": "https://github.com/Dag0d/electricity_price_suite",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/Dag0d/electricity_price_suite/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
