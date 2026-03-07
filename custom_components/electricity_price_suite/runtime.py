@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_point_in_time
@@ -27,60 +27,37 @@ from .const import (
     DEFAULT_ROUND_DECIMALS,
     DOMAIN,
 )
-from .models import PlanResult, SlotRecord
+from .models import PlanPayload, PlanResult, SlotRecord, SourceConfig, TimelineStats
 from .optimizer import optimize_runtime
+from .plan_manager import (
+    build_no_candidate_result,
+    build_plan_payload,
+    build_reset_payload,
+    load_consumption_profile_logger,
+    reoptimize_plan_payload,
+)
 from .providers import fetch_from_source, normalize_slots
 from .store import TimelineStore
+from .timeline_stats import (
+    build_timeline_stats,
+    current_price_coverage_end,
+    detect_billing_slot_minutes,
+    filter_slots_for_missing_days,
+    filter_today_tomorrow_slots,
+    has_primary_tomorrow_rows,
+    missing_today_tomorrow_primary,
+    next_slot_start_after,
+    parse_iso_local,
+    pending_primary,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _parse_iso_local(value: str, tz: ZoneInfo) -> datetime | None:
-    try:
-        dt = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        return None
-    return dt.astimezone(tz)
-
-
-def _weighted_avg(values: list[tuple[float, float]]) -> float | None:
-    if not values:
-        return None
-    total_w = sum(w for _, w in values if w > 0)
-    if total_w <= 0:
-        return None
-    return sum(v * w for v, w in values if w > 0) / total_w
-
-
-def _weighted_q(values: list[tuple[float, float]], q: float) -> float | None:
-    pairs = sorted((v, w) for v, w in values if w > 0)
-    if not pairs:
-        return None
-    total = sum(w for _, w in pairs)
-    target = total * q
-    seen = 0.0
-    for value, weight in pairs:
-        seen += weight
-        if seen >= target:
-            return value
-    return pairs[-1][0]
-
-
-@dataclass(slots=True)
-class TimelineStats:
-    state: float | str
-    attributes: dict[str, Any]
-    current_price: float | None
-    current_price_start_time: str | None
-    status: str
 
 
 class TimelineRuntime:
     """One runtime timeline bound to one config entry."""
 
-    def __init__(self, hass: HomeAssistant, entry) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
         self.timeline_id = entry.entry_id
@@ -125,26 +102,8 @@ class TimelineRuntime:
             status="no_data",
         )
 
-    def _detect_billing_slot_minutes(self, rows: list[dict]) -> int:
-        if len(rows) < 2:
-            return DEFAULT_BILLING_SLOT_MINUTES
-        tz = ZoneInfo(self.timezone)
-        parsed: list[datetime] = []
-        for row in rows:
-            dt = _parse_iso_local(row["start_time"], tz)
-            if dt is not None:
-                parsed.append(dt)
-        parsed.sort()
-        if len(parsed) < 2:
-            return DEFAULT_BILLING_SLOT_MINUTES
-        deltas: list[int] = []
-        for idx in range(1, len(parsed)):
-            diff = int(round((parsed[idx] - parsed[idx - 1]).total_seconds() / 60.0))
-            if 1 <= diff <= 240:
-                deltas.append(diff)
-        if not deltas:
-            return DEFAULT_BILLING_SLOT_MINUTES
-        return min(deltas)
+    def _detect_billing_slot_minutes(self, rows: list[dict[str, float | str]]) -> int:
+        return detect_billing_slot_minutes(rows, self.timezone, DEFAULT_BILLING_SLOT_MINUTES)
 
     async def async_initialize(self) -> None:
         await self.store.async_load()
@@ -164,25 +123,22 @@ class TimelineRuntime:
             self._unsub_scheduled_poll()
             self._unsub_scheduled_poll = None
 
-    def register_add_entities(self, add_entities) -> None:
+    def register_add_entities(self, add_entities: Any) -> None:
         self._add_entities = add_entities
 
     async def _rebuild_from_store(self) -> None:
-        self.latest_stats = self._build_timeline_stats()
+        self.latest_stats = self._compute_timeline_stats()
         self._schedule_next_time_update()
 
-    def _round(self, value: float | None) -> float | None:
-        return None if value is None else round(float(value), self.round_decimals)
-
-    def _normalize_source(self, source: dict, fallback_priority: int) -> dict:
-        normalized = dict(source)
+    def _normalize_source(self, source: dict[str, Any], fallback_priority: int) -> SourceConfig:
+        normalized: SourceConfig = dict(source)
         normalized.setdefault("id", f"source_{fallback_priority}")
         normalized.setdefault("priority", fallback_priority)
         normalized.setdefault("enabled", True)
         normalized.setdefault("slot_mapping", {"time_key": "start_time", "price_key": "price_per_kwh"})
         return normalized
 
-    def _enabled_sources(self, override_sources: list[Any] | None = None) -> list[dict]:
+    def _enabled_sources(self, override_sources: list[Any] | None = None) -> list[SourceConfig]:
         if override_sources and all(isinstance(item, dict) for item in override_sources):
             chain = [
                 self._normalize_source(dict(item), idx)
@@ -208,15 +164,17 @@ class TimelineRuntime:
         *,
         override_sources: list[Any] | None,
         only_today_tomorrow: bool = True,
+        overwrite: bool = False,
     ) -> dict[str, Any]:
         attempt_log: list[dict[str, Any]] = []
         merged_debug: dict[str, int] = {"inserted": 0, "replaced": 0, "ignored": 0}
         used_sources: list[str] = []
         fetched_source_chain = False
         active_sources = self._enabled_sources(override_sources)
+        cleared_rows = 0
 
         if not active_sources:
-            self.latest_stats = self._build_timeline_stats()
+            self.latest_stats = self._compute_timeline_stats()
             self._schedule_next_poll_update()
             return {
                 "status": "no_data",
@@ -231,11 +189,19 @@ class TimelineRuntime:
                 "pending_primary": self._pending_primary(),
                 "merge_debug": merged_debug,
                 "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
+                "cleared_rows": cleared_rows,
                 "reason": "no_sources_configured",
                 "hint": "Configure a primary source via config flow or add_source service.",
             }
 
-        need_today, need_tomorrow = self._missing_today_tomorrow_primary()
+        if overwrite and only_today_tomorrow:
+            tz = ZoneInfo(self.timezone)
+            today = datetime.now(tz).date()
+            tomorrow = today + timedelta(days=1)
+            cleared_rows = self.store.clear_slots_for_dates(self.timezone, {today, tomorrow})
+            need_today, need_tomorrow = True, True
+        else:
+            need_today, need_tomorrow = self._missing_today_tomorrow_primary()
 
         for source in active_sources:
             # If primary already covers both days, no fallback query is needed.
@@ -277,7 +243,7 @@ class TimelineRuntime:
             self.store.set_last_source_chain_fetch()
         await self.store.async_save()
 
-        self.latest_stats = self._build_timeline_stats()
+        self.latest_stats = self._compute_timeline_stats()
         await self._maybe_reoptimize_plans_after_data_update()
         self._schedule_next_poll_update()
 
@@ -312,9 +278,10 @@ class TimelineRuntime:
             "pending_primary": pending_primary,
             "merge_debug": merged_debug,
             "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
+            "cleared_rows": cleared_rows,
         }
 
-    async def async_add_source(self, source: dict) -> dict[str, Any]:
+    async def async_add_source(self, source: dict[str, Any]) -> dict[str, Any]:
         next_priority = len(self.store.get_sources())
         normalized = self._normalize_source(source, fallback_priority=next_priority)
         self.store.upsert_source(normalized)
@@ -356,7 +323,7 @@ class TimelineRuntime:
     async def async_inject_slots(
         self,
         *,
-        slots_payload: list[dict],
+        slots_payload: list[dict[str, Any]],
         source_name: str,
         source_priority: int,
         is_primary: bool,
@@ -387,7 +354,7 @@ class TimelineRuntime:
         self.store.purge_old_slots(self.timezone)
         await self.store.async_save()
 
-        self.latest_stats = self._build_timeline_stats()
+        self.latest_stats = self._compute_timeline_stats()
         self._schedule_next_time_update()
         self._schedule_next_poll_update()
         await self._maybe_reoptimize_plans_after_data_update()
@@ -520,36 +487,22 @@ class TimelineRuntime:
         device_slug = slugify(device_name)
         entity_id = self.plan_entity_id(device_slug)
 
-        plan_payload = {
-            "device_name": device_name,
-            "status": result.status,
-            "reason": result.reason,
-            "best_start": result.best_start,
-            "best_end": result.best_end,
-            "best_cost": result.best_cost,
-            "window_start": result.window_start,
-            "window_end": result.window_end,
-            "deadline_mode": deadline_mode,
-            "deadline_minutes": deadline_minutes,
-            "latest_start": latest_start,
-            "latest_finish": latest_finish,
-            "duration_minutes": result.duration_minutes,
-            "billing_slot_minutes": result.billing_slot_minutes,
-            "profile_slot_minutes": result.profile_slot_minutes,
-            "epsilon_rel": epsilon_rel,
-            "prefer_earliest": prefer_earliest,
-            "align_start_to_billing_slot": align_start_to_billing_slot,
-            "candidates": result.candidates,
-            "profile_used": result.profile_used,
-            "profile_source": profile_source,
-            "profile_meta": profile_meta,
-            "requested_window_end": result.requested_window_end,
-            "window_truncated_by_data": result.window_truncated_by_data,
-            "price_coverage_end_at_compute": result.price_coverage_end,
-            "computed_at": datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds"),
-            "dry_run": dry_run,
-            "timeline_entity": self.timeline_entity_id,
-        }
+        plan_payload = build_plan_payload(
+            device_name=device_name,
+            result=result,
+            deadline_mode=deadline_mode,
+            deadline_minutes=deadline_minutes,
+            latest_start=latest_start,
+            latest_finish=latest_finish,
+            epsilon_rel=epsilon_rel,
+            prefer_earliest=prefer_earliest,
+            dry_run=dry_run,
+            align_start_to_billing_slot=align_start_to_billing_slot,
+            profile_source=profile_source,
+            profile_meta=profile_meta,
+            timeline_entity_id=self.timeline_entity_id,
+            timezone_name=self.timezone,
+        )
 
         self.store.set_plan(device_slug, plan_payload)
         await self.store.async_save()
@@ -610,54 +563,11 @@ class TimelineRuntime:
             "reason": "manual_reset",
         }
 
-    def _build_reset_payload(self, device_name: str) -> dict[str, Any]:
-        return {
-            "device_name": device_name,
-            "status": "reset",
-            "reason": "manual_reset",
-            "best_start": None,
-            "best_end": None,
-            "best_cost": None,
-            "window_start": None,
-            "window_end": None,
-            "deadline_mode": "none",
-            "deadline_minutes": None,
-            "latest_start": None,
-            "latest_finish": None,
-            "duration_minutes": None,
-            "billing_slot_minutes": None,
-            "profile_slot_minutes": None,
-            "epsilon_rel": None,
-            "prefer_earliest": None,
-            "align_start_to_billing_slot": None,
-            "candidates": 0,
-            "profile_used": [],
-            "profile_source": "reset",
-            "profile_meta": None,
-            "requested_window_end": None,
-            "window_truncated_by_data": False,
-            "price_coverage_end_at_compute": None,
-            "computed_at": datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="seconds"),
-            "dry_run": False,
-            "timeline_entity": self.timeline_entity_id,
-        }
+    def _build_reset_payload(self, device_name: str) -> PlanPayload:
+        return build_reset_payload(device_name, self.timeline_entity_id, self.timezone)
 
     def _build_no_candidate_result(self, reason: str) -> PlanResult:
-        now = datetime.now(ZoneInfo(self.timezone)).isoformat(timespec="minutes")
-        return PlanResult(
-            status="no-candidate",
-            best_start=None,
-            best_end=None,
-            best_cost=None,
-            reason=reason,
-            candidates=0,
-            profile_used=[],
-            window_start=now,
-            window_end=now,
-            duration_minutes=None,
-            billing_slot_minutes=DEFAULT_BILLING_SLOT_MINUTES,
-            profile_slot_minutes=DEFAULT_BILLING_SLOT_MINUTES,
-        )
+        return build_no_candidate_result(self.timezone, reason)
 
     async def _load_consumption_profile_logger(
         self,
@@ -665,89 +575,18 @@ class TimelineRuntime:
         consumption_profile_entity: str | None,
         desired_slot_minutes: int | None,
     ) -> tuple[list[float] | None, float | None, int | None, dict[str, Any] | None, str | None]:
-        if not consumption_profile_entity:
-            return None, None, None, None, "missing_consumption_profile_entity"
-
-        payload: dict[str, Any] = {"entity_id": consumption_profile_entity}
-        if desired_slot_minutes is not None:
-            payload["desired_slot_minutes"] = int(desired_slot_minutes)
-
-        try:
-            response = await self.hass.services.async_call(
-                "consumption_profile_logger",
-                "get_profile",
-                payload,
-                blocking=True,
-                return_response=True,
-            )
-        except Exception as err:  # pragma: no cover - defensive
-            return None, None, None, None, f"consumption_profile_call_failed:{err}"
-        if not isinstance(response, dict):
-            return None, None, None, None, "consumption_profile_invalid_response"
-
-        ok = bool(response.get("ok"))
-        if not ok:
-            code = response.get("code")
-            message = response.get("message")
-            reason = "consumption_profile_not_ok"
-            if code:
-                reason += f":{code}"
-            if message:
-                reason += f":{message}"
-            return None, None, None, None, reason
-
-        profile = response.get("profile")
-        if not isinstance(profile, dict):
-            return None, None, None, None, "consumption_profile_missing_profile"
-
-        slots_kwh = profile.get("slots_kwh")
-        if not isinstance(slots_kwh, list) or not slots_kwh:
-            return None, None, None, None, "consumption_profile_missing_slots"
-        try:
-            energy_profile = [float(v) for v in slots_kwh]
-        except (TypeError, ValueError):
-            return None, None, None, None, "consumption_profile_invalid_slots"
-
-        try:
-            slot_minutes = int(profile.get("slot_minutes"))
-        except (TypeError, ValueError):
-            return None, None, None, None, "consumption_profile_invalid_slot_minutes"
-        if slot_minutes <= 0:
-            return None, None, None, None, "consumption_profile_invalid_slot_minutes"
-
-        runtime_minutes_raw = profile.get("runtime_minutes")
-        runtime_minutes: float
-        try:
-            runtime_minutes = float(runtime_minutes_raw)
-        except (TypeError, ValueError):
-            runtime_minutes = float(len(energy_profile) * slot_minutes)
-
-        profile_meta = {
-            "entity_id": consumption_profile_entity,
-            "logger_id": profile.get("logger_id"),
-            "logger_name": profile.get("logger_name"),
-            "program_key": profile.get("program_key"),
-            "program_name": profile.get("program_name"),
-            "avg_total_kwh": profile.get("avg_total_kwh"),
-            "last_updated": profile.get("last_updated"),
-        }
-        return energy_profile, runtime_minutes, slot_minutes, profile_meta, None
+        return await load_consumption_profile_logger(
+            self.hass,
+            consumption_profile_entity=consumption_profile_entity,
+            desired_slot_minutes=desired_slot_minutes,
+        )
 
     def _current_price_coverage_end(self) -> datetime | None:
-        rows = self._slot_dicts_for_optimizer()
-        if not rows:
-            return None
-        billing_slot = self._detect_billing_slot_minutes(rows)
-        tz = ZoneInfo(self.timezone)
-        max_end: datetime | None = None
-        for row in rows:
-            dt = _parse_iso_local(str(row.get("start_time")), tz)
-            if dt is None:
-                continue
-            end = dt + timedelta(minutes=billing_slot)
-            if max_end is None or end > max_end:
-                max_end = end
-        return max_end
+        return current_price_coverage_end(
+            self.store.get_slots(),
+            self.timezone,
+            DEFAULT_BILLING_SLOT_MINUTES,
+        )
 
     async def _maybe_reoptimize_plans_after_data_update(self) -> None:
         coverage_end = self._current_price_coverage_end()
@@ -763,11 +602,11 @@ class TimelineRuntime:
             if not bool(payload.get("window_truncated_by_data")):
                 continue
 
-            best_start = _parse_iso_local(str(payload.get("best_start")), tz)
+            best_start = parse_iso_local(str(payload.get("best_start")), tz)
             if best_start is None or now >= best_start:
                 continue
 
-            prev_coverage = _parse_iso_local(str(payload.get("price_coverage_end_at_compute")), tz)
+            prev_coverage = parse_iso_local(str(payload.get("price_coverage_end_at_compute")), tz)
             if prev_coverage is not None and coverage_end <= prev_coverage:
                 continue
 
@@ -776,23 +615,10 @@ class TimelineRuntime:
                 continue
 
             try:
-                result = optimize_runtime(
+                result = reoptimize_plan_payload(
                     slots=self._slot_dicts_for_optimizer(),
+                    payload=payload,
                     timezone_name=self.timezone,
-                    billing_slot_minutes=int(payload.get("billing_slot_minutes") or DEFAULT_BILLING_SLOT_MINUTES),
-                    duration_minutes=float(payload.get("duration_minutes")) if payload.get("duration_minutes") is not None else None,
-                    energy_profile=[float(v) for v in (payload.get("profile_used") or [])],
-                    profile_slot_minutes=int(payload.get("profile_slot_minutes") or DEFAULT_BILLING_SLOT_MINUTES),
-                    epsilon_rel=float(payload.get("epsilon_rel", 0.01)),
-                    prefer_earliest=bool(payload.get("prefer_earliest", True)),
-                    start_mode="now",
-                    start_in_minutes=0.0,
-                    deadline_mode="none",
-                    deadline_minutes=None,
-                    latest_start=requested_window_end,
-                    latest_finish=None,
-                    align_start_to_billing_slot=bool(payload.get("align_start_to_billing_slot", False)),
-                    reference_time=None,
                 )
             except Exception as err:  # pragma: no cover - defensive
                 _LOGGER.debug("plan re-optimize failed for %s/%s: %s", self.timeline_slug, device_slug, err, exc_info=True)
@@ -823,7 +649,7 @@ class TimelineRuntime:
                 coverage_end.isoformat(timespec="minutes"),
             )
 
-    def _slot_dicts_for_optimizer(self) -> list[dict]:
+    def _slot_dicts_for_optimizer(self) -> list[dict[str, float | str]]:
         return [
             {
                 "start_time": item["start_time"],
@@ -851,223 +677,20 @@ class TimelineRuntime:
             "model": "Price Timeline",
         }
 
-    def _rows_for_day(self, day: datetime.date, tz: ZoneInfo) -> list[dict]:
-        out = []
-        for row in self.store.get_slots():
-            dt = _parse_iso_local(row["start_time"], tz)
-            if dt is None:
-                continue
-            if dt.date() == day:
-                out.append(row)
-        out.sort(key=lambda item: item["start_time"])
-        return out
-
-    def _weighted_for_rows(
-        self,
-        rows: list[dict],
-        tz: ZoneInfo,
-        fallback_slot_minutes: int,
-    ) -> list[tuple[float, float]]:
-        weighted: list[tuple[float, float]] = []
-        for idx, row in enumerate(rows):
-            dt = _parse_iso_local(row["start_time"], tz)
-            if dt is None:
-                continue
-            if idx + 1 < len(rows):
-                next_dt = _parse_iso_local(rows[idx + 1]["start_time"], tz)
-                if next_dt is not None:
-                    duration_h = (next_dt - dt).total_seconds() / 3600.0
-                else:
-                    duration_h = fallback_slot_minutes / 60.0
-            else:
-                duration_h = fallback_slot_minutes / 60.0
-
-            duration_h = max(0.05, duration_h)
-            weighted.append((float(row["price_per_kwh"]), duration_h))
-
-        return weighted
-
-    def _build_timeline_stats(self) -> TimelineStats:
-        tz = ZoneInfo(self.timezone)
-        now = datetime.now(tz)
-        today = now.date()
-        tomorrow = today + timedelta(days=1)
-
-        today_rows = self._rows_for_day(today, tz)
-        tomorrow_rows = self._rows_for_day(tomorrow, tz)
-        detected_slot_minutes = self._detect_billing_slot_minutes(self.store.get_slots())
-        current_price, current_price_start = self._current_price_for_now(
-            self.store.get_slots(),
-            now,
-            tz,
-            detected_slot_minutes,
+    def _compute_timeline_stats(self) -> TimelineStats:
+        return build_timeline_stats(
+            store=self.store,
+            timezone_name=self.timezone,
+            currency=self.currency,
+            round_decimals=self.round_decimals,
+            fallback_slot_minutes=DEFAULT_BILLING_SLOT_MINUTES,
         )
-
-        card = [
-            {"start_time": row["start_time"], "price_per_kwh": self._round(row["price_per_kwh"])}
-            for row in [*today_rows, *tomorrow_rows]
-        ]
-        card.sort(key=lambda item: item["start_time"])
-
-        w_today = self._weighted_for_rows(today_rows, tz, detected_slot_minutes)
-        w_tomorrow = self._weighted_for_rows(tomorrow_rows, tz, detected_slot_minutes)
-
-        past_3: list[tuple[float, float]] = []
-        past_7: list[tuple[float, float]] = []
-        for offset in range(1, 8):
-            day_rows = self._rows_for_day(today - timedelta(days=offset), tz)
-            weighted = self._weighted_for_rows(day_rows, tz, detected_slot_minutes)
-            if offset <= 3:
-                past_3.extend(weighted)
-            past_7.extend(weighted)
-
-        def min_time(rows: list[dict]) -> str | None:
-            if not rows:
-                return None
-            lowest = min(float(r["price_per_kwh"]) for r in rows)
-            for row in rows:
-                if float(row["price_per_kwh"]) == lowest:
-                    return row["start_time"]
-            return None
-
-        def max_time(rows: list[dict]) -> str | None:
-            if not rows:
-                return None
-            highest = max(float(r["price_per_kwh"]) for r in rows)
-            for row in rows:
-                if float(row["price_per_kwh"]) == highest:
-                    return row["start_time"]
-            return None
-
-        avg_today = _weighted_avg(w_today)
-        attrs: dict[str, Any] = {
-            "friendly_name": f"{self.timeline_name} Pricing Meta",
-            "currency": self.currency,
-            "unit_of_measurement": f"{self.currency}/kWh",
-            "data": card,
-            "avg_today": self._round(avg_today),
-            "min_today": self._round(min((v for v, _ in w_today), default=None)),
-            "max_today": self._round(max((v for v, _ in w_today), default=None)),
-            "p20_today": self._round(_weighted_q(w_today, 0.2)),
-            "p70_today": self._round(_weighted_q(w_today, 0.7)),
-            "min_today_time": min_time(today_rows),
-            "max_today_time": max_time(today_rows),
-            "avg_tomorrow": self._round(_weighted_avg(w_tomorrow)),
-            "min_tomorrow": self._round(min((v for v, _ in w_tomorrow), default=None)),
-            "max_tomorrow": self._round(max((v for v, _ in w_tomorrow), default=None)),
-            "p20_tomorrow": self._round(_weighted_q(w_tomorrow, 0.2)),
-            "p70_tomorrow": self._round(_weighted_q(w_tomorrow, 0.7)),
-            "min_tomorrow_time": min_time(tomorrow_rows),
-            "max_tomorrow_time": max_time(tomorrow_rows),
-            "avg_last_3d": self._round(_weighted_avg(past_3) if len(past_3) > 0 else None),
-            "avg_last_7d": self._round(_weighted_avg(past_7) if len(past_7) > 0 else None),
-            "p20_last_3d": self._round(_weighted_q(past_3, 0.2) if len(past_3) > 0 else None),
-            "p70_last_3d": self._round(_weighted_q(past_3, 0.7) if len(past_3) > 0 else None),
-            "p20_last_7d": self._round(_weighted_q(past_7, 0.2) if len(past_7) > 0 else None),
-            "p70_last_7d": self._round(_weighted_q(past_7, 0.7) if len(past_7) > 0 else None),
-            "today_rows": len(today_rows),
-            "tomorrow_rows": len(tomorrow_rows),
-            "tomorrow_status": "ok" if tomorrow_rows else "absent",
-            "pending_primary": self._pending_primary(),
-            "last_primary_refresh_at": self.store.last_primary_refresh_at,
-            "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
-            "last_successful_source_id": self.store.last_successful_source_id,
-            "source_health": self.store.source_health,
-            "timeline_status": self._compute_timeline_status(
-                len(today_rows),
-                len(tomorrow_rows),
-                self._has_primary_tomorrow_rows(),
-            ),
-            "updated_at": now.isoformat(timespec="seconds"),
-        }
-
-        state: float | str = self._round(avg_today) if avg_today is not None else "unknown"
-        status = str(attrs["timeline_status"])
-        return TimelineStats(
-            state=state,
-            attributes=attrs,
-            current_price=self._round(current_price),
-            current_price_start_time=current_price_start,
-            status=status,
-        )
-
-    def _compute_timeline_status(
-        self,
-        today_rows: int,
-        tomorrow_rows: int,
-        has_primary_tomorrow: bool,
-    ) -> str:
-        if today_rows <= 0 and tomorrow_rows <= 0:
-            return "no_data"
-        if today_rows > 0 and tomorrow_rows <= 0:
-            return "today_only"
-        if today_rows <= 0 and tomorrow_rows > 0:
-            return "tomorrow_only"
-        if tomorrow_rows > 0 and not has_primary_tomorrow:
-            return "tomorrow_not_from_prio0"
-        return "today_and_tomorrow"
-
-    def _current_price_for_now(
-        self,
-        rows: list[dict],
-        now: datetime,
-        tz: ZoneInfo,
-        fallback_slot_minutes: int,
-    ) -> tuple[float | None, str | None]:
-        parsed_rows: list[tuple[datetime, dict]] = []
-        for row in rows:
-            dt = _parse_iso_local(row["start_time"], tz)
-            if dt is not None:
-                parsed_rows.append((dt, row))
-        parsed_rows.sort(key=lambda item: item[0])
-        if not parsed_rows:
-            return None, None
-
-        for idx, (dt, row) in enumerate(parsed_rows):
-            if idx + 1 < len(parsed_rows):
-                next_dt = parsed_rows[idx + 1][0]
-            else:
-                next_dt = dt + timedelta(minutes=fallback_slot_minutes)
-            if dt <= now < next_dt:
-                try:
-                    return float(row["price_per_kwh"]), row["start_time"]
-                except (TypeError, ValueError):
-                    return None, None
-
-        return None, None
 
     def _filter_today_tomorrow_slots(self, slots: list[SlotRecord]) -> list[SlotRecord]:
-        tz = ZoneInfo(self.timezone)
-        today = datetime.now(tz).date()
-        tomorrow = today + timedelta(days=1)
-        out: list[SlotRecord] = []
-        for slot in slots:
-            dt = _parse_iso_local(slot.start_time, tz)
-            if not dt:
-                continue
-            if dt.date() in {today, tomorrow}:
-                out.append(slot)
-        return out
+        return filter_today_tomorrow_slots(slots, self.timezone)
 
     def _missing_today_tomorrow_primary(self) -> tuple[bool, bool]:
-        tz = ZoneInfo(self.timezone)
-        today = datetime.now(tz).date()
-        tomorrow = today + timedelta(days=1)
-        has_primary_today = False
-        has_primary_tomorrow = False
-        for row in self.store.get_slots():
-            if not bool(row.get("is_primary_source")):
-                continue
-            dt = _parse_iso_local(row["start_time"], tz)
-            if not dt:
-                continue
-            if dt.date() == today:
-                has_primary_today = True
-            elif dt.date() == tomorrow:
-                has_primary_tomorrow = True
-            if has_primary_today and has_primary_tomorrow:
-                break
-        return (not has_primary_today, not has_primary_tomorrow)
+        return missing_today_tomorrow_primary(self.store.get_slots(), self.timezone)
 
     def _filter_slots_for_missing_days(
         self,
@@ -1075,21 +698,7 @@ class TimelineRuntime:
         need_today: bool,
         need_tomorrow: bool,
     ) -> list[SlotRecord]:
-        if not need_today and not need_tomorrow:
-            return []
-        tz = ZoneInfo(self.timezone)
-        today = datetime.now(tz).date()
-        tomorrow = today + timedelta(days=1)
-        out: list[SlotRecord] = []
-        for slot in slots:
-            dt = _parse_iso_local(slot.start_time, tz)
-            if not dt:
-                continue
-            if need_today and dt.date() == today:
-                out.append(slot)
-            elif need_tomorrow and dt.date() == tomorrow:
-                out.append(slot)
-        return out
+        return filter_slots_for_missing_days(slots, need_today, need_tomorrow, self.timezone)
 
     def _write_time_based_sensors(self) -> None:
         if self.timeline_sensor is not None:
@@ -1098,6 +707,10 @@ class TimelineRuntime:
             self.status_sensor.async_write_ha_state()
         if self.current_price_sensor is not None:
             self.current_price_sensor.async_write_ha_state()
+
+    @callback
+    def write_state_entities(self) -> None:
+        self._write_time_based_sensors()
 
     @callback
     def _schedule_next_time_update(self) -> None:
@@ -1132,18 +745,10 @@ class TimelineRuntime:
         return min(candidates)
 
     def _next_slot_start_after(self, now: datetime) -> datetime | None:
-        tz = ZoneInfo(self.timezone)
-        next_slot: datetime | None = None
-        for row in self.store.get_slots():
-            dt = _parse_iso_local(row["start_time"], tz)
-            if dt is None or dt <= now:
-                continue
-            if next_slot is None or dt < next_slot:
-                next_slot = dt
-        return next_slot
+        return next_slot_start_after(self.store.get_slots(), now, self.timezone)
 
     async def _handle_scheduled_time_update(self, _now: datetime) -> None:
-        self.latest_stats = self._build_timeline_stats()
+        self.latest_stats = self._compute_timeline_stats()
         self._write_time_based_sensors()
         self._schedule_next_time_update()
         self._schedule_next_poll_update()
@@ -1202,28 +807,10 @@ class TimelineRuntime:
         self._schedule_next_poll_update()
 
     def _has_primary_tomorrow_rows(self) -> bool:
-        tz = ZoneInfo(self.timezone)
-        tomorrow = datetime.now(tz).date() + timedelta(days=1)
-        for row in self.store.get_slots():
-            dt = _parse_iso_local(row["start_time"], tz)
-            if not dt or dt.date() != tomorrow:
-                continue
-            if bool(row.get("is_primary_source")):
-                return True
-        return False
+        return has_primary_tomorrow_rows(self.store.get_slots(), self.timezone)
 
     def _pending_primary(self) -> bool:
-        tz = ZoneInfo(self.timezone)
-        today = datetime.now(tz).date()
-        tomorrow = today + timedelta(days=1)
-        has_non_primary = False
-        for row in self.store.get_slots():
-            dt = _parse_iso_local(row["start_time"], tz)
-            if not dt or dt.date() not in {today, tomorrow}:
-                continue
-            if not bool(row.get("is_primary_source")):
-                has_non_primary = True
-        return has_non_primary
+        return pending_primary(self.store.get_slots(), self.timezone)
 
     def _create_plan_sensor(self, device_slug: str, device_name: str):
         from .sensor import PlanSensor

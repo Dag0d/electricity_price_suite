@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import logging
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -118,7 +119,6 @@ async def _fetch_entity_action(hass: HomeAssistant, source: dict) -> Any:
         start_key = source.get("start_key", "start")
         end_key = source.get("end_key", "end")
         time_format = source.get("time_format", "%Y-%m-%d %H:%M:%S")
-        from zoneinfo import ZoneInfo
 
         tz = ZoneInfo(tz_name)
         now = datetime.now(tz)

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any
 from zoneinfo import ZoneInfo
 
 from .models import PlanResult

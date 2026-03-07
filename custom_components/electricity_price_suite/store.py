@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
-from .models import SlotRecord
+from .models import PlanPayload, SlotRecord, SlotRow, SourceConfig
 
 
 class TimelineStore:
@@ -43,17 +43,21 @@ class TimelineStore:
         self._data.setdefault("source_health", {})[source_id] = {
             "healthy": healthy,
             "reason": reason,
-            "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "updated_at": dt_util.utcnow().isoformat(timespec="seconds").replace("+00:00", "Z"),
         }
 
     def set_last_successful_source(self, source_id: str) -> None:
         self._data["last_successful_source_id"] = source_id
 
     def set_last_primary_refresh(self) -> None:
-        self._data["last_primary_refresh_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        self._data["last_primary_refresh_at"] = dt_util.utcnow().isoformat(timespec="seconds").replace(
+            "+00:00", "Z"
+        )
 
     def set_last_source_chain_fetch(self) -> None:
-        self._data["last_source_chain_fetch_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        self._data["last_source_chain_fetch_at"] = dt_util.utcnow().isoformat(timespec="seconds").replace(
+            "+00:00", "Z"
+        )
 
     @property
     def last_primary_refresh_at(self) -> str | None:
@@ -94,16 +98,38 @@ class TimelineStore:
 
         return len(old_keys)
 
-    def get_slots(self) -> list[dict]:
-        by_start: dict[str, dict] = self._data.get("slots", {})
+    def clear_slots_for_dates(self, timezone_name: str, dates: set[datetime.date]) -> int:
+        """Delete all stored slots that belong to the given local dates."""
+
+        if not dates:
+            return 0
+
+        tz = ZoneInfo(timezone_name)
+        by_start: dict[str, dict] = self._data.setdefault("slots", {})
+        remove_keys: list[str] = []
+        for key in by_start:
+            try:
+                dt = datetime.fromisoformat(key)
+            except ValueError:
+                continue
+            if dt.astimezone(tz).date() in dates:
+                remove_keys.append(key)
+
+        for key in remove_keys:
+            by_start.pop(key, None)
+
+        return len(remove_keys)
+
+    def get_slots(self) -> list[SlotRow]:
+        by_start: dict[str, SlotRow] = self._data.get("slots", {})
         rows = list(by_start.values())
         rows.sort(key=lambda item: item["start_time"])
         return rows
 
-    def set_plan(self, device_slug: str, payload: dict) -> None:
+    def set_plan(self, device_slug: str, payload: PlanPayload) -> None:
         self._data.setdefault("plans", {})[device_slug] = payload
 
-    def get_plans(self) -> dict:
+    def get_plans(self) -> dict[str, PlanPayload]:
         return self._data.get("plans", {})
 
     def delete_plan(self, device_slug: str) -> bool:
@@ -113,10 +139,10 @@ class TimelineStore:
             return True
         return False
 
-    def get_sources(self) -> list[dict]:
+    def get_sources(self) -> list[SourceConfig]:
         return list(self._data.get("sources", []))
 
-    def upsert_source(self, source: dict) -> None:
+    def upsert_source(self, source: SourceConfig) -> None:
         sources = self._data.setdefault("sources", [])
         source_id = str(source.get("id"))
         for idx, existing in enumerate(sources):
@@ -127,7 +153,7 @@ class TimelineStore:
             sources.append(source)
         sources.sort(key=lambda item: int(item.get("priority", 9999)))
 
-    def get_source(self, source_id: str) -> dict | None:
+    def get_source(self, source_id: str) -> SourceConfig | None:
         for source in self._data.get("sources", []):
             if str(source.get("id")) == str(source_id):
                 return dict(source)
@@ -142,7 +168,7 @@ class TimelineStore:
         return False
 
 
-def merge_slot_dicts(by_start: dict[str, dict], slots: list[SlotRecord]) -> dict[str, int]:
+def merge_slot_dicts(by_start: dict[str, SlotRow], slots: list[SlotRecord]) -> dict[str, int]:
     """Apply rank overwrite policy to a slot dictionary."""
 
     inserted = 0

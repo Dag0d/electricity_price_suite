@@ -53,6 +53,21 @@ The optimizer never needs price slots in its payload. It reads already stored ti
 - Optional profile import from `consumption_profile_logger.get_profile`
 - Separate plan management service for reset/delete lifecycle actions
 
+## Internal Structure
+
+The integration keeps the external feature set stable, but the runtime internals are split by responsibility:
+
+- `runtime.py`
+  - timeline orchestration, service-facing runtime behavior, scheduling, and entity lifecycle
+- `timeline_stats.py`
+  - timeline state building, weighted metrics, current-price detection, and high-level status evaluation
+- `plan_manager.py`
+  - plan payload creation, reset handling, profile loading, and plan re-optimization helpers
+- `resolvers.py`
+  - target-to-runtime and target-to-plan resolution helpers
+
+This split was introduced to reduce duplication in the original monolithic runtime and make future changes easier to validate.
+
 ## Installation
 
 1. Copy this integration into your Home Assistant config:
@@ -114,13 +129,16 @@ Per-device planning entity:
 
 ## Services
 
-All services are in domain `electricity_price_suite` and use a timeline `target`.
+All services are in domain `electricity_price_suite`.
+
+- `refresh_timeline`, `inject_slots`, `optimize_device`, `add_source`, `list_sources`, `delete_source` use a timeline target.
+- `manage_plan` uses one or more plan entity targets.
 
 ---
 
 ### `refresh_timeline`
 
-Refreshes timeline slots from configured sources.
+Refreshes timeline slots from configured sources and merges them by priority.
 
 #### Inputs
 
@@ -128,8 +146,11 @@ Refreshes timeline slots from configured sources.
   - Expected: exactly one sensor entity in `target.entity_id`.
   - Effect: selects which timeline instance is refreshed.
 - `sources` (optional): temporary source override for this call.
-  - Expected: list of source objects with the same shape as stored sources.
+  - Expected: list of source objects with the same shape as stored pull sources.
   - Effect: only this refresh call uses these sources; stored source chain is unchanged.
+- `overwrite` (optional, default `false`): explicit fresh re-fetch mode.
+  - Expected: boolean.
+  - Effect: deletes currently stored rows for today and tomorrow before fetching again from the source chain.
 
 #### Response (typical)
 
@@ -144,6 +165,7 @@ Refreshes timeline slots from configured sources.
 - `has_primary_data_for_tomorrow`: whether tomorrow is currently covered by priority-0 rows.
 - `pending_primary`: whether fallback rows still exist where primary is expected.
 - `merge_debug`: counters (`inserted`, `replaced`, `ignored`) for this run.
+- `cleared_rows`: number of today/tomorrow rows removed before fetch when `overwrite=true`.
 - `last_source_chain_fetch_at`: timestamp of latest source-chain fetch.
 
 ---
@@ -283,6 +305,13 @@ Resets or deletes existing plan entities.
 ### `add_source`
 
 Adds or updates a source definition in the timeline source chain.
+
+`add_source` currently supports pull sources only:
+
+- `entity_attribute`
+- `entity_action`
+
+`inject_only` is available for the primary source during config flow and for direct data injection via `inject_slots`, but it is not added through `add_source`.
 
 #### Inputs
 

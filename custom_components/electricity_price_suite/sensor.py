@@ -106,6 +106,7 @@ class TimelineSensor(BaseSuiteEntity):
     def __init__(self, runtime: TimelineRuntime) -> None:
         super().__init__(runtime)
         self._attr_unique_id = f"{runtime.entry.entry_id}_pricing_meta"
+        self._attr_native_unit_of_measurement = f"{runtime.currency}/kWh"
         self.entity_id = runtime.timeline_entity_id
 
     @property

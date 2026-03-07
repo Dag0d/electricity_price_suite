@@ -1,0 +1,166 @@
+title: Electricity Price Suite Test
+views:
+  - title: EPS Test
+    path: eps-test
+    icon: mdi:flash
+    cards:
+      - type: entities
+        title: Test Controls
+        entities:
+          - entity: input_select.electricity_price_suite_test_case
+          - entity: input_button.electricity_price_suite_run_test
+
+      - type: entities
+        title: Timeline Core
+        entities:
+          - entity: sensor.test_timeline_pricing_meta
+          - entity: sensor.test_timeline_status
+          - entity: sensor.test_timeline_current_price
+
+      - type: entities
+        title: Timeline Status Details
+        entities:
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: today_rows
+            name: Today rows
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: tomorrow_rows
+            name: Tomorrow rows
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: pending_primary
+            name: Pending primary
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: last_successful_source_id
+            name: Last successful source
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: last_primary_refresh_at
+            name: Last primary refresh
+          - type: attribute
+            entity: sensor.test_timeline_status
+            attribute: last_source_chain_fetch_at
+            name: Last source-chain fetch
+
+      - type: entities
+        title: Today Metrics
+        entities:
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: avg_today
+            name: Avg today
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: min_today
+            name: Min today
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: max_today
+            name: Max today
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: p20_today
+            name: P20 today
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: p70_today
+            name: P70 today
+
+      - type: entities
+        title: Tomorrow Metrics
+        entities:
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: avg_tomorrow
+            name: Avg tomorrow
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: min_tomorrow
+            name: Min tomorrow
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: max_tomorrow
+            name: Max tomorrow
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: p20_tomorrow
+            name: P20 tomorrow
+          - type: attribute
+            entity: sensor.test_timeline_pricing_meta
+            attribute: p70_tomorrow
+            name: P70 tomorrow
+
+      - type: entities
+        title: Plan Entity
+        entities:
+          - entity: sensor.test_timeline_plan_test_device
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: status
+            name: Plan status
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: reason
+            name: Reason
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: best_end
+            name: Best end
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: best_cost
+            name: Best cost
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: window_start
+            name: Window start
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: window_end
+            name: Window end
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: requested_window_end
+            name: Requested window end
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: window_truncated_by_data
+            name: Window truncated by data
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: profile_source
+            name: Profile source
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
+            attribute: computed_at
+            name: Computed at
+
+      - type: markdown
+        title: Expected Results
+        content: |
+          **1_refresh_primary**
+          Uses the real configured source chain.
+
+          **2_refresh_inject_only_override**
+          Should not pull any new data. Good for confirming that `refresh_timeline` does not invent data for an `inject_only` override.
+
+          **3_inject_fallback_today_tomorrow**
+          Injects fallback rows for today and tomorrow. `pending_primary` should normally become `true`.
+
+          **4_inject_primary_tomorrow_override**
+          Replaces tomorrow fallback rows with priority-0 rows while keeping today untouched.
+
+          **5_optimize_basic**
+          Creates `sensor.test_timeline_plan_test_device`.
+
+          **6_plan_reset**
+          Keeps the plan entity but clears the planned start and sets `status=reset`.
+
+          **7_plan_delete**
+          Removes the persisted plan entity.
+
+          **8_refresh_primary_overwrite**
+          Clears stored rows for today and tomorrow, then fetches them again from the real source chain.

@@ -94,11 +94,15 @@
   "services": {
     "refresh_timeline": {
       "name": "Refresh timeline",
-      "description": "Refresh today and tomorrow slots from configured sources.",
+      "description": "Refresh today and tomorrow slots from configured sources and merge them by priority.",
       "fields": {
         "sources": {
           "name": "Sources override",
           "description": "Optional temporary source list for this call."
+        },
+        "overwrite": {
+          "name": "Overwrite stored today/tomorrow rows",
+          "description": "If true, delete existing rows for today and tomorrow before fetching again."
         }
       }
     },
@@ -218,7 +222,7 @@
     },
     "add_source": {
       "name": "Add source",
-      "description": "Add or update one source in the source chain.",
+      "description": "Add or update one pull source in the source chain.",
       "fields": {
         "id": {
           "name": "Source ID",
@@ -226,7 +230,7 @@
         },
         "source_type": {
           "name": "Source type",
-          "description": "Source mode. Use entity_attribute for sensor attributes or entity_action for service responses."
+          "description": "Pull source mode. Use entity_attribute for sensor attributes or entity_action for service responses."
         },
         "priority": {
           "name": "Priority",

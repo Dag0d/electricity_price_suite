@@ -26,6 +26,19 @@ from .const import (
 )
 
 
+def _int_selector(*, min_value: int = 0, max_value: int | None = None) -> selector.NumberSelector:
+    """Return a boxed integer selector for config and options flows."""
+
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=min_value,
+            max=max_value,
+            mode=selector.NumberSelectorMode.BOX,
+            step=1,
+        )
+    )
+
+
 class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow."""
 
@@ -52,8 +65,14 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_TIMELINE_NAME): str,
                 vol.Required(CONF_CURRENCY, default=DEFAULT_CURRENCY): str,
-                vol.Required(CONF_CACHE_RETENTION_DAYS, default=DEFAULT_CACHE_RETENTION_DAYS): int,
-                vol.Required(CONF_ROUND_DECIMALS, default=DEFAULT_ROUND_DECIMALS): int,
+                vol.Required(
+                    CONF_CACHE_RETENTION_DAYS,
+                    default=DEFAULT_CACHE_RETENTION_DAYS,
+                ): _int_selector(min_value=1, max_value=365),
+                vol.Required(
+                    CONF_ROUND_DECIMALS,
+                    default=DEFAULT_ROUND_DECIMALS,
+                ): _int_selector(min_value=0, max_value=8),
                 vol.Required(
                     CONF_ENABLE_CURRENT_PRICE_SENSOR,
                     default=DEFAULT_ENABLE_CURRENT_PRICE_SENSOR,
@@ -102,7 +121,7 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("id", default="primary"): str,
-                vol.Required("priority", default=0): int,
+                vol.Required("priority", default=0): _int_selector(min_value=0, max_value=9999),
                 vol.Required("time_key", default="start_time"): str,
                 vol.Required("price_key", default="price_per_kwh"): str,
             }
@@ -128,7 +147,7 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("id", default="primary"): str,
-                vol.Required("priority", default=0): int,
+                vol.Required("priority", default=0): _int_selector(min_value=0, max_value=9999),
                 vol.Required("source_entity_id"): selector.EntitySelector(
                     selector.EntitySelectorConfig()
                 ),
@@ -175,7 +194,7 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required("id", default="primary"): str,
-                vol.Required("priority", default=0): int,
+                vol.Required("priority", default=0): _int_selector(min_value=0, max_value=9999),
                 vol.Required("action", default="tibber.get_prices"): str,
                 vol.Required("response_path", default="prices.tibber-home"): str,
                 vol.Optional("source_entity_id"): selector.EntitySelector(
@@ -229,11 +248,11 @@ class ElectricityPriceSuiteOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_CACHE_RETENTION_DAYS,
                     default=current.get(CONF_CACHE_RETENTION_DAYS, DEFAULT_CACHE_RETENTION_DAYS),
-                ): int,
+                ): _int_selector(min_value=1, max_value=365),
                 vol.Required(
                     CONF_ROUND_DECIMALS,
                     default=current.get(CONF_ROUND_DECIMALS, DEFAULT_ROUND_DECIMALS),
-                ): int,
+                ): _int_selector(min_value=0, max_value=8),
                 vol.Required(
                     CONF_ENABLE_CURRENT_PRICE_SENSOR,
                     default=current.get(CONF_ENABLE_CURRENT_PRICE_SENSOR, DEFAULT_ENABLE_CURRENT_PRICE_SENSOR),

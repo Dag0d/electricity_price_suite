@@ -8,13 +8,19 @@ refresh_timeline:
     sources:
       required: false
       description: Optional temporary source override list for this call only.
-      example: "[{\"id\": \"primary_action\", \"type\": \"entity_action\", \"priority\": 0}]"
+      example: "[{\"id\": \"primary_action\", \"type\": \"entity_action\", \"priority\": 0, \"response_path\": \"prices.home\", \"slot_mapping\": {\"time_key\": \"start_time\", \"price_key\": \"price\"}}]"
       selector:
         object: {}
+    overwrite:
+      required: false
+      description: If true, delete currently stored rows for today and tomorrow before fetching. Use this for explicit fresh re-fetches after tests or manual injections.
+      example: "false"
+      selector:
+        boolean: {}
 
 add_source:
   name: Add source
-  description: Add or update one source in the timeline source chain.
+  description: Add or update one pull source in the timeline source chain.
   target:
     entity:
       domain: sensor
@@ -36,7 +42,7 @@ add_source:
           mode: box
     source_type:
       required: true
-      description: Source mode. Use entity_attribute for attributes or entity_action for service responses.
+      description: Pull source mode. Use entity_attribute for attributes or entity_action for service responses.
       example: "entity_action"
       selector:
         select:
@@ -70,7 +76,7 @@ add_source:
     request_payload:
       required: false
       description: Additional payload forwarded to the action call.
-      example: "{\"start\": \"2026-03-06 00:00:00\", \"end\": \"2026-03-07 23:59:59\"}"
+      example: "{}"
       selector:
         object: {}
     time_key:
@@ -160,7 +166,7 @@ inject_slots:
     source_priority:
       required: false
       description: Priority rank for injected rows (lower rank replaces higher rank).
-      example: "5"
+      example: "9999"
       selector:
         number:
           min: 0

@@ -1,0 +1,132 @@
+alias: Electricity Price Suite Test Runner
+mode: single
+trigger:
+  - platform: state
+    entity_id: input_button.electricity_price_suite_run_test
+
+action:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "1_refresh_primary"
+        sequence:
+          - action: electricity_price_suite.refresh_timeline
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "2_refresh_inject_only_override"
+        sequence:
+          - action: electricity_price_suite.refresh_timeline
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              sources:
+                - id: fallback_manual
+                  type: inject_only
+                  priority: 5
+                  enabled: true
+                  slot_mapping:
+                    time_key: start_time
+                    price_key: price_per_kwh
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "3_inject_fallback_today_tomorrow"
+        sequence:
+          - action: electricity_price_suite.inject_slots
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              source_name: fallback_test
+              source_priority: 5
+              is_primary: false
+              slots: >
+                {% set out = namespace(rows=[]) %}
+                {% set today = now().replace(hour=0, minute=0, second=0, microsecond=0) %}
+                {% set tomorrow = today + timedelta(days=1) %}
+                {% set out.rows = out.rows + [
+                  {"start_time": today.isoformat(), "price_per_kwh": 0.31},
+                  {"start_time": (today + timedelta(minutes=15)).isoformat(), "price_per_kwh": 0.29},
+                  {"start_time": tomorrow.isoformat(), "price_per_kwh": 0.41},
+                  {"start_time": (tomorrow + timedelta(minutes=15)).isoformat(), "price_per_kwh": 0.39}
+                ] %}
+                {{ out.rows }}
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "4_inject_primary_tomorrow_override"
+        sequence:
+          - action: electricity_price_suite.inject_slots
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              source_name: primary_test
+              source_priority: 0
+              is_primary: true
+              slots: >
+                {% set out = namespace(rows=[]) %}
+                {% set today = now().replace(hour=0, minute=0, second=0, microsecond=0) %}
+                {% set tomorrow = today + timedelta(days=1) %}
+                {% set out.rows = out.rows + [
+                  {"start_time": tomorrow.isoformat(), "price_per_kwh": 0.21},
+                  {"start_time": (tomorrow + timedelta(minutes=15)).isoformat(), "price_per_kwh": 0.19}
+                ] %}
+                {{ out.rows }}
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "5_optimize_basic"
+        sequence:
+          - action: electricity_price_suite.optimize_device
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              device_name: Test Device
+              duration_minutes: 30
+              start_mode: now
+              deadline_mode: finish_within
+              deadline_minutes: 720
+              align_start_to_billing_slot: true
+              dry_run: false
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "6_plan_reset"
+        sequence:
+          - action: electricity_price_suite.manage_plan
+            target:
+              entity_id: sensor.test_timeline_plan_test_device
+            data:
+              reset: true
+              delete: false
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "7_plan_delete"
+        sequence:
+          - action: electricity_price_suite.manage_plan
+            target:
+              entity_id: sensor.test_timeline_plan_test_device
+            data:
+              reset: false
+              delete: true
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "8_refresh_primary_overwrite"
+        sequence:
+          - action: electricity_price_suite.refresh_timeline
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              overwrite: true

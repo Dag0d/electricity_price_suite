@@ -27,6 +27,7 @@ from .const import (
     SERVICE_OPTIMIZE_DEVICE,
     SERVICE_REFRESH_TIMELINE,
 )
+from .resolvers import resolve_plan_target, resolve_timeline_runtime
 from .runtime import TimelineRuntime
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ REFRESH_SCHEMA = vol.Schema(
     {
         **cv.TARGET_SERVICE_FIELDS,
         vol.Optional("sources"): [dict],
+        vol.Optional("overwrite", default=False): cv.boolean,
     }
 )
 
@@ -122,6 +124,10 @@ DELETE_SOURCE_SCHEMA = vol.Schema(
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
+    @callback
+    def _write_runtime_entities(runtime: TimelineRuntime) -> None:
+        runtime.write_state_entities()
+
     async def _resolve_runtime(call: ServiceCall) -> TimelineRuntime:
         raw = call.data.get("entity_id")
         if raw is None:
@@ -133,22 +139,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         if len(entity_ids) != 1:
             raise HomeAssistantError("exactly one timeline target entity is required")
         target_entity = entity_ids[0]
-        for runtime in hass.data[DOMAIN].values():
-            if target_entity == runtime.timeline_entity_id:
-                return runtime
+        runtime = resolve_timeline_runtime(hass.data[DOMAIN], target_entity)
+        if runtime is not None:
+            return runtime
         raise HomeAssistantError(f"unknown timeline target: {target_entity}")
 
     async def handle_refresh(call: ServiceCall) -> dict[str, Any]:
         runtime = await _resolve_runtime(call)
         response = await runtime.async_refresh_timeline(
             override_sources=call.data.get("sources"),
+            overwrite=call.data["overwrite"],
         )
-        if runtime.timeline_sensor is not None:
-            runtime.timeline_sensor.async_write_ha_state()
-        if runtime.status_sensor is not None:
-            runtime.status_sensor.async_write_ha_state()
-        if runtime.current_price_sensor is not None:
-            runtime.current_price_sensor.async_write_ha_state()
+        _write_runtime_entities(runtime)
         return response
 
     async def handle_inject(call: ServiceCall) -> dict[str, Any]:
@@ -159,12 +161,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             source_priority=call.data["source_priority"],
             is_primary=call.data["is_primary"],
         )
-        if runtime.timeline_sensor is not None:
-            runtime.timeline_sensor.async_write_ha_state()
-        if runtime.status_sensor is not None:
-            runtime.status_sensor.async_write_ha_state()
-        if runtime.current_price_sensor is not None:
-            runtime.current_price_sensor.async_write_ha_state()
+        _write_runtime_entities(runtime)
         return response
 
     async def handle_optimize(call: ServiceCall) -> dict[str, Any]:
@@ -223,22 +220,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
         managed: list[dict[str, Any]] = []
         for entity_id in target_entities:
-            matched = False
-            for runtime in hass.data[DOMAIN].values():
-                for device_slug in runtime.store.get_plans().keys():
-                    if runtime.plan_entity_id(device_slug) == entity_id:
-                        managed.append(
-                            await runtime.async_manage_plan(
-                                device_slug=device_slug,
-                                reset=reset,
-                                delete=delete,
-                            )
-                        )
-                        matched = True
-                        break
-                if matched:
-                    break
-            if not matched:
+            resolved = resolve_plan_target(hass.data[DOMAIN], entity_id)
+            if resolved is None:
                 managed.append(
                     {
                         "status": "not_found",
@@ -246,6 +229,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                         "reason": "plan_not_found",
                     }
                 )
+                continue
+            runtime, device_slug = resolved
+            managed.append(
+                await runtime.async_manage_plan(
+                    device_slug=device_slug,
+                    reset=reset,
+                    delete=delete,
+                )
+            )
         return {"results": managed}
 
     async def handle_add_source(call: ServiceCall) -> dict[str, Any]:
@@ -296,49 +288,49 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_REFRESH_TIMELINE,
         handle_refresh,
         schema=REFRESH_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_INJECT_SLOTS,
         handle_inject,
         schema=INJECT_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_OPTIMIZE_DEVICE,
         handle_optimize,
         schema=OPTIMIZE_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_MANAGE_PLAN,
         handle_manage_plan,
         schema=MANAGE_PLAN_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_ADD_SOURCE,
         handle_add_source,
         schema=ADD_SOURCE_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_LIST_SOURCES,
         handle_list_sources,
         schema=LIST_SOURCES_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_DELETE_SOURCE,
         handle_delete_source,
         schema=DELETE_SOURCE_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
     return True

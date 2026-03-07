@@ -4,13 +4,13 @@
     "step": {
       "user": {
         "title": "Electricity Price Suite",
-        "description": "Erstelle eine Timeline und konfiguriere das Grundverhalten.",
+        "description": "Lege eine Timeline an und konfiguriere die Grundeinstellungen.",
         "data": {
           "timeline_name": "Timeline-Name",
           "currency": "Währung",
           "cache_retention_days": "Cache-Aufbewahrung (Tage)",
-          "round_decimals": "Preise auf Nachkommastellen runden",
-          "enable_current_price_sensor": "Current-Price-Sensor aktivieren"
+          "round_decimals": "Anzahl Nachkommastellen für Preise",
+          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren"
         }
       },
       "primary_type": {
@@ -22,7 +22,7 @@
       },
       "primary_inject": {
         "title": "Primärquelle (Nur Inject)",
-        "description": "Nutze das, wenn Preise manuell über electricity_price_suite.inject_slots übergeben werden. Erforderliche Slot-Keys: start_time und price_per_kwh.",
+        "description": "Nutze diese Option, wenn Preise manuell über electricity_price_suite.inject_slots übergeben werden. Jedes Slot-Objekt muss mindestens start_time und price_per_kwh enthalten.",
         "data": {
           "id": "Quellen-ID",
           "priority": "Priorität (0 = höchste)",
@@ -44,18 +44,18 @@
       },
       "primary_action": {
         "title": "Primärquelle (Service-Aktion)",
-        "description": "Nutze das, wenn Preise aus einer Service-Antwort kommen (z. B. tibber.get_prices). Response path zeigt auf die Slot-Liste in der Antwort.",
+        "description": "Nutze diese Option, wenn Preise aus einer Service-Antwort kommen (zum Beispiel tibber.get_prices). Der Response-Pfad zeigt auf die Slot-Liste in der Antwort.",
         "data": {
           "id": "Quellen-ID",
           "priority": "Priorität (0 = höchste)",
           "action": "Aktion (domain.service)",
           "response_path": "Response-Pfad",
           "source_entity_id": "Optionale Quell-Entität",
-          "request_payload_json": "Request-Payload JSON",
-          "inject_time_window": "Zeitfenster Heute/Morgen injizieren",
+          "request_payload_json": "Request-Payload (JSON)",
+          "inject_time_window": "Zeitfenster für heute und morgen einfügen",
           "start_key": "Start-Key",
           "end_key": "End-Key",
-          "time_format": "Datetime-Format",
+          "time_format": "Datumsformat",
           "time_key": "Zeit-Key im Slot-Objekt",
           "price_key": "Preis-Key im Slot-Objekt"
         }
@@ -72,8 +72,8 @@
         "data": {
           "currency": "Währung",
           "cache_retention_days": "Cache-Aufbewahrung (Tage)",
-          "round_decimals": "Preise auf Nachkommastellen runden",
-          "enable_current_price_sensor": "Current-Price-Sensor aktivieren"
+          "round_decimals": "Anzahl Nachkommastellen für Preise",
+          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren"
         }
       }
     }
@@ -81,7 +81,7 @@
   "entity": {
     "sensor": {
       "pricing_meta": {
-        "name": "Pricing Meta"
+        "name": "Preis-Metadaten"
       },
       "current_price": {
         "name": "Aktueller Preis"
@@ -94,11 +94,15 @@
   "services": {
     "refresh_timeline": {
       "name": "Timeline aktualisieren",
-      "description": "Slots für heute und morgen aus den konfigurierten Quellen laden.",
+      "description": "Slots für heute und morgen aus den konfigurierten Quellen laden und nach Priorität zusammenführen.",
       "fields": {
         "sources": {
           "name": "Quellen-Override",
           "description": "Optional temporäre Quellenliste nur für diesen Aufruf."
+        },
+        "overwrite": {
+          "name": "Gespeicherte Heute-/Morgen-Daten überschreiben",
+          "description": "Wenn true, werden die aktuell gespeicherten Zeilen für heute und morgen vor dem erneuten Abruf gelöscht."
         }
       }
     },
@@ -174,7 +178,7 @@
         },
         "start_mode": {
           "name": "Startmodus",
-          "description": "Startanker: jetzt oder jetzt plus start_in_minutes."
+          "description": "Startzeitpunkt relativ zu jetzt: sofort oder mit zusätzlichem Offset über start_in_minutes."
         },
         "start_in_minutes": {
           "name": "Start in Minuten",
@@ -197,8 +201,8 @@
           "description": "Absolute Obergrenze für den Endzeitpunkt (ISO-Zeitstempel)."
         },
         "dry_run": {
-          "name": "Dry run",
-          "description": "Führt die Optimierung aus und speichert den Plan mit dry_run-Markierung."
+          "name": "Testlauf",
+          "description": "Führt die Optimierung aus und speichert den Plan mit gesetzter dry_run-Markierung."
         }
       }
     },
@@ -218,7 +222,7 @@
     },
     "add_source": {
       "name": "Quelle hinzufügen",
-      "description": "Eine Quelle zur Quellenkette hinzufügen oder aktualisieren.",
+      "description": "Eine Pull-Quelle zur Quellenkette hinzufügen oder aktualisieren.",
       "fields": {
         "id": {
           "name": "Quellen-ID",
@@ -226,7 +230,7 @@
         },
         "source_type": {
           "name": "Quellentyp",
-          "description": "Quellenmodus. entity_attribute für Sensor-Attribute, entity_action für Service-Antworten."
+          "description": "Pull-Quellenmodus. entity_attribute für Sensor-Attribute, entity_action für Service-Antworten."
         },
         "priority": {
           "name": "Priorität",
