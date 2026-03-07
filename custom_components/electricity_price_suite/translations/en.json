@@ -125,6 +125,10 @@
         "is_primary": {
           "name": "Treat as primary source",
           "description": "Mark injected rows as primary-source rows."
+        },
+        "overwrite": {
+          "name": "Overwrite rows for matching dates",
+          "description": "If true, delete stored rows for the same local dates before injecting new rows."
         }
       }
     },

@@ -9,6 +9,7 @@ views:
         entities:
           - entity: input_select.electricity_price_suite_test_case
           - entity: input_button.electricity_price_suite_run_test
+          - entity: timer.electricity_price_suite_edge_case_wait
 
       - type: entities
         title: Timeline Core
@@ -164,3 +165,7 @@ views:
 
           **8_refresh_primary_overwrite**
           Clears stored rows for today and tomorrow, then fetches them again from the real source chain.
+
+          **9_optimizer_boundary_edge_case**
+          Clears today/tomorrow, injects quarter-hour prices, waits until exactly `HH:00:15`, `HH:15:15`, `HH:30:15`, or `HH:45:15`, and then runs the optimizer.
+          Expected result: the plan must start on the *next* quarter boundary, never on the boundary that is already 15 seconds in the past.

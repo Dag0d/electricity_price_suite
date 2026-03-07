@@ -91,7 +91,7 @@ class PlanPayload(TypedDict):
 class TimelineStats:
     """Computed sensor state snapshot for one timeline."""
 
-    state: float | str
+    state: float | None
     attributes: dict[str, Any]
     current_price: float | None
     current_price_start_time: str | None

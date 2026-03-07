@@ -20,7 +20,7 @@ action:
             entity_id: input_select.electricity_price_suite_test_case
             state: "2_refresh_inject_only_override"
         sequence:
-          - action: electricity_price_suite.refresh_timeline
+          - action: electricity_price_suite.inject_slots
             target:
               entity_id: sensor.test_timeline_pricing_meta
             data:
@@ -130,3 +130,68 @@ action:
               entity_id: sensor.test_timeline_pricing_meta
             data:
               overwrite: true
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "9_optimizer_boundary_edge_case"
+        sequence:
+          - variables:
+              now_ts: "{{ as_timestamp(now()) }}"
+              current_quarter_ts: >
+                {{ as_timestamp(now().replace(minute=(now().minute - (now().minute % 15)), second=0, microsecond=0)) }}
+              boundary_start_ts: >
+                {% set minute_mod = now().minute % 15 %}
+                {% if minute_mod == 0 and now().second < 15 %}
+                  {{ current_quarter_ts }}
+                {% else %}
+                  {{ current_quarter_ts + 900 }}
+                {% endif %}
+              calc_at_ts: "{{ boundary_start_ts | float + 15 }}"
+              boundary_start: "{{ boundary_start_ts | float | timestamp_local }}"
+              calc_at: "{{ calc_at_ts | float | timestamp_local }}"
+              wait_seconds: >
+                {% set diff = (calc_at_ts | float) - now_ts %}
+                {{ 0 if diff < 0 else diff | int }}
+          - action: timer.start
+            target:
+              entity_id: timer.electricity_price_suite_edge_case_wait
+            data:
+              duration: "{{ wait_seconds }}"
+          - action: electricity_price_suite.inject_slots
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              source_name: edge_case_primary
+              source_priority: 0
+              is_primary: true
+              overwrite: true
+              slots: >
+                {% set boundary = as_datetime(boundary_start) %}
+                {{
+                  [
+                    {"start_time": boundary.isoformat(), "price_per_kwh": 0.10},
+                    {"start_time": (boundary + timedelta(minutes=15)).isoformat(), "price_per_kwh": 0.20},
+                    {"start_time": (boundary + timedelta(minutes=30)).isoformat(), "price_per_kwh": 0.30},
+                    {"start_time": (boundary + timedelta(minutes=45)).isoformat(), "price_per_kwh": 0.40}
+                  ]
+                }}
+          - delay:
+              seconds: "{{ wait_seconds }}"
+          - action: electricity_price_suite.optimize_device
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              device_name: Test Device
+              energy_profile:
+                - 1
+                - 1
+                - 1
+              profile_slot_minutes: 5
+              start_mode: now
+              deadline_mode: start_within
+              deadline_minutes: 15
+              epsilon_rel: 0
+              prefer_earliest: true
+              align_start_to_billing_slot: true
+              dry_run: false

@@ -21,6 +21,7 @@ Create these Home Assistant helpers:
 
 - `input_select.electricity_price_suite_test_case`
 - `input_button.electricity_price_suite_run_test`
+- `timer.electricity_price_suite_edge_case_wait`
 
 `input_select.electricity_price_suite_test_case` options:
 
@@ -32,6 +33,7 @@ Create these Home Assistant helpers:
 - `6_plan_reset`
 - `7_plan_delete`
 - `8_refresh_primary_overwrite`
+- `9_optimizer_boundary_edge_case`
 
 ## Files
 
@@ -44,4 +46,10 @@ Create these Home Assistant helpers:
 
 - The inject tests build dates dynamically from `now()`, so they always target today and tomorrow.
 - `8_refresh_primary_overwrite` is the cleanup path after inject tests. It deletes stored rows for today and tomorrow and then refreshes from the real source chain.
+- `9_optimizer_boundary_edge_case` is a timed regression test for the optimizer:
+  - it clears today/tomorrow,
+  - injects synthetic quarter-hour prices,
+  - waits until the next realistic quarter boundary plus 15 seconds,
+  - and then runs the optimizer.
+- The helper `timer.electricity_price_suite_edge_case_wait` shows the remaining wait time until the optimization fires.
 - No response variables are required because the integration services now support optional responses.

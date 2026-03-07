@@ -50,6 +50,7 @@ INJECT_SCHEMA = vol.Schema(
         vol.Optional("source_name", default="manual_inject"): cv.string,
         vol.Optional("source_priority", default=9999): vol.Coerce(int),
         vol.Optional("is_primary", default=False): cv.boolean,
+        vol.Optional("overwrite", default=False): cv.boolean,
     }
 )
 
@@ -160,6 +161,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             source_name=call.data["source_name"],
             source_priority=call.data["source_priority"],
             is_primary=call.data["is_primary"],
+            overwrite=call.data["overwrite"],
         )
         _write_runtime_entities(runtime)
         return response

@@ -95,7 +95,7 @@ class TimelineRuntime:
         self._unsub_scheduled_poll = None
 
         self.latest_stats = TimelineStats(
-            state="unknown",
+            state=None,
             attributes={},
             current_price=None,
             current_price_start_time=None,
@@ -327,6 +327,7 @@ class TimelineRuntime:
         source_name: str,
         source_priority: int,
         is_primary: bool,
+        overwrite: bool = False,
     ) -> dict[str, Any]:
         source = {
             "id": source_name,
@@ -346,6 +347,16 @@ class TimelineRuntime:
                 )
                 for s in normalized
             ]
+
+        cleared_rows = 0
+        if overwrite and normalized:
+            tz = ZoneInfo(self.timezone)
+            dates = {
+                dt.date()
+                for slot in normalized
+                if (dt := parse_iso_local(slot.start_time, tz)) is not None
+            }
+            cleared_rows = self.store.clear_slots_for_dates(self.timezone, dates)
 
         merged = self.store.upsert_slots(normalized)
         self.store.set_last_successful_source(source_name)
@@ -372,6 +383,7 @@ class TimelineRuntime:
             "rows_received": len(normalized),
             "merge_debug": merged,
             "pending_primary": self._pending_primary(),
+            "cleared_rows": cleared_rows,
         }
 
     async def async_optimize_device(

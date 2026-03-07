@@ -20,10 +20,10 @@ def _parse_iso(value: str, tz: ZoneInfo) -> datetime | None:
 
 def _round_to_grid(dt: datetime, grid_minutes: int, mode: str) -> datetime:
     day_start = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    total_minutes = int((dt - day_start).total_seconds() // 60)
-    rem = total_minutes % grid_minutes
-    floor_value = total_minutes - rem
-    ceil_value = floor_value if rem == 0 else floor_value + grid_minutes
+    total_minutes = (dt - day_start).total_seconds() / 60.0
+    floor_value = int(total_minutes // grid_minutes) * grid_minutes
+    rem = total_minutes - floor_value
+    ceil_value = floor_value if rem <= 0 else floor_value + grid_minutes
 
     if mode == "floor":
         out = floor_value

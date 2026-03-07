@@ -256,7 +256,7 @@ def build_timeline_stats(
         "updated_at": now.isoformat(timespec="seconds"),
     }
 
-    state: float | str = round_value(avg_today, round_decimals) if avg_today is not None else "unknown"
+    state = round_value(avg_today, round_decimals)
     return TimelineStats(
         state=state,
         attributes=attrs,

@@ -191,6 +191,9 @@ Directly injects slots into timeline storage.
 - `is_primary` (optional, default `false`).
   - Expected: boolean.
   - Effect: marks injected rows as primary-source rows.
+- `overwrite` (optional, default `false`).
+  - Expected: boolean.
+  - Effect: deletes stored rows for the same local dates before injecting the new rows.
 
 #### Response (typical)
 
@@ -199,6 +202,7 @@ Directly injects slots into timeline storage.
 - `rows_received`: number of normalized rows accepted from payload.
 - `merge_debug`: counters (`inserted`, `replaced`, `ignored`).
 - `pending_primary`: whether fallback rows remain in active window.
+- `cleared_rows`: number of stored rows removed before injection when `overwrite=true`.
 
 ---
 

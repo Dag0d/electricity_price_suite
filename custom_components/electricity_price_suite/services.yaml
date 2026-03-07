@@ -178,6 +178,12 @@ inject_slots:
       example: "false"
       selector:
         boolean: {}
+    overwrite:
+      required: false
+      description: If true, delete stored rows for the same local dates before injecting the new rows.
+      example: "false"
+      selector:
+        boolean: {}
 
 optimize_device:
   name: Optimize device

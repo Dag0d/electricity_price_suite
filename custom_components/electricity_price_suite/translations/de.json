@@ -125,6 +125,10 @@
         "is_primary": {
           "name": "Als Primärquelle behandeln",
           "description": "Markiert injizierte Zeilen als Primärquellen-Zeilen."
+        },
+        "overwrite": {
+          "name": "Zeilen für passende Tage überschreiben",
+          "description": "Wenn true, werden gespeicherte Zeilen für dieselben lokalen Tage vor dem Injizieren gelöscht."
         }
       }
     },

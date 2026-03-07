@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.0.2 - 2026-03-07
+
+### Fixed
+- Fixed optimizer grid rounding so a calculation performed a few seconds after any valid start-grid boundary no longer returns a start time that is already in the past.
+- Fixed the main pricing meta sensor to return a proper numeric-empty state (`None`) instead of the string `unknown` when no numeric value is available.
+
+### Changed
+- Added `overwrite` support to `inject_slots` so same-day test data or manual injections can explicitly replace stored day rows.
+
+### Added
+- Extended the manual test harness with a dedicated optimizer boundary-edge-case scenario for quarter-hour start validation.
+
 ## 1.0.1 - 2026-03-07
 
 ### Changed
