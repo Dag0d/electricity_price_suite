@@ -25,6 +25,7 @@ from .const import (
     SERVICE_LIST_SOURCES,
     SERVICE_MANAGE_PLAN,
     SERVICE_OPTIMIZE_DEVICE,
+    SERVICE_REOPTIMIZE_PLAN,
     SERVICE_REFRESH_TIMELINE,
 )
 from .resolvers import resolve_plan_target, resolve_timeline_runtime
@@ -84,6 +85,12 @@ MANAGE_PLAN_SCHEMA = vol.Schema(
         **cv.TARGET_SERVICE_FIELDS,
         vol.Optional("reset", default=False): cv.boolean,
         vol.Optional("delete", default=False): cv.boolean,
+    }
+)
+
+REOPTIMIZE_PLAN_SCHEMA = vol.Schema(
+    {
+        **cv.TARGET_SERVICE_FIELDS,
     }
 )
 
@@ -242,6 +249,33 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             )
         return {"results": managed}
 
+    async def handle_reoptimize_plan(call: ServiceCall) -> dict[str, Any]:
+        raw = call.data.get("entity_id")
+        if raw is None:
+            raise HomeAssistantError("target with one or more plan entities is required")
+        if isinstance(raw, str):
+            target_entities = [raw]
+        else:
+            target_entities = list(raw)
+        if not target_entities:
+            raise HomeAssistantError("target with one or more plan entities is required")
+
+        results: list[dict[str, Any]] = []
+        for entity_id in target_entities:
+            resolved = resolve_plan_target(hass.data[DOMAIN], entity_id)
+            if resolved is None:
+                results.append(
+                    {
+                        "status": "not_found",
+                        "plan_entity_id": entity_id,
+                        "reason": "plan_not_found",
+                    }
+                )
+                continue
+            runtime, device_slug = resolved
+            results.append(await runtime.async_reoptimize_plan(device_slug=device_slug))
+        return {"results": results}
+
     async def handle_add_source(call: ServiceCall) -> dict[str, Any]:
         runtime = await _resolve_runtime(call)
         source_type = call.data["source_type"]
@@ -311,6 +345,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         SERVICE_MANAGE_PLAN,
         handle_manage_plan,
         schema=MANAGE_PLAN_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REOPTIMIZE_PLAN,
+        handle_reoptimize_plan,
+        schema=REOPTIMIZE_PLAN_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(

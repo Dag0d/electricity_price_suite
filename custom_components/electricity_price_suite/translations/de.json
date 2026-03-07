@@ -220,6 +220,10 @@
         }
       }
     },
+    "reoptimize_plan": {
+      "name": "Plan neu optimieren",
+      "description": "Berechnet eine oder mehrere vorhandene Plan-Entitäten mit den gespeicherten Randbedingungen und den aktuellen Timeline-Daten neu."
+    },
     "add_source": {
       "name": "Quelle hinzufügen",
       "description": "Eine Pull-Quelle zur Quellenkette hinzufügen oder aktualisieren.",

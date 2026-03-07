@@ -570,6 +570,48 @@ class TimelineRuntime:
             "reason": "manual_reset",
         }
 
+    async def async_reoptimize_plan(self, *, device_slug: str) -> dict[str, Any]:
+        plans = self.store.get_plans()
+        payload = plans.get(device_slug)
+        entity_id = self.plan_entity_id(device_slug)
+
+        if payload is None:
+            return {
+                "status": "not_found",
+                "plan_entity_id": entity_id,
+                "reason": "plan_not_found",
+            }
+
+        if payload.get("status") != "ok":
+            return {
+                "status": "not_reoptimized",
+                "plan_entity_id": entity_id,
+                "reason": f"plan_status_{payload.get('status', 'unknown')}",
+            }
+
+        result = reoptimize_plan_payload(
+            slots=self._slot_dicts_for_optimizer(),
+            payload=payload,
+            timezone_name=self.timezone,
+        )
+        return await self._persist_plan_result(
+            device_name=str(payload.get("device_name", device_slug)),
+            result=result,
+            deadline_mode=str(payload.get("deadline_mode", "none")),
+            deadline_minutes=(
+                float(payload.get("deadline_minutes"))
+                if payload.get("deadline_minutes") is not None
+                else None
+            ),
+            latest_start=payload.get("latest_start"),
+            latest_finish=payload.get("latest_finish"),
+            max_extra_cost_percent=float(payload.get("max_extra_cost_percent", 1.0)),
+            prefer_earliest=bool(payload.get("prefer_earliest", True)),
+            align_start_to_billing_slot=bool(payload.get("align_start_to_billing_slot", False)),
+            profile_source=str(payload.get("profile_source", "service_payload")),
+            profile_meta=payload.get("profile_meta"),
+        )
+
     def _build_reset_payload(self, device_name: str) -> PlanPayload:
         return build_reset_payload(device_name, self.timeline_entity_id, self.timezone)
 
@@ -617,8 +659,8 @@ class TimelineRuntime:
             if prev_coverage is not None and coverage_end <= prev_coverage:
                 continue
 
-            requested_window_end = payload.get("requested_window_end")
-            if not isinstance(requested_window_end, str) or not requested_window_end:
+            requested_latest_start = payload.get("requested_latest_start")
+            if not isinstance(requested_latest_start, str) or not requested_latest_start:
                 continue
 
             try:

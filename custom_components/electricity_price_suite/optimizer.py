@@ -328,7 +328,7 @@ def optimize_runtime(
         latest_start_eval = latest_available_start
     else:
         latest_start_eval = min(requested_latest_start, latest_available_start)
-    requested_window_end = (
+    requested_latest_start_iso = (
         requested_latest_start.isoformat(timespec="minutes") if requested_latest_start else None
     )
     window_truncated_by_data = (
@@ -349,7 +349,7 @@ def optimize_runtime(
             duration_minutes=effective_duration,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=prof_slot,
-            requested_window_end=requested_window_end,
+            requested_latest_start=requested_latest_start_iso,
             window_truncated_by_data=window_truncated_by_data,
             price_coverage_end=last_price_end.isoformat(timespec="minutes"),
         )
@@ -391,7 +391,7 @@ def optimize_runtime(
             duration_minutes=effective_duration,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=prof_slot,
-            requested_window_end=requested_window_end,
+            requested_latest_start=requested_latest_start_iso,
             window_truncated_by_data=window_truncated_by_data,
             price_coverage_end=last_price_end.isoformat(timespec="minutes"),
         )
@@ -420,7 +420,7 @@ def optimize_runtime(
         duration_minutes=effective_duration,
         billing_slot_minutes=billing_slot_minutes,
         profile_slot_minutes=prof_slot,
-        requested_window_end=requested_window_end,
+        requested_latest_start=requested_latest_start_iso,
         window_truncated_by_data=window_truncated_by_data,
         price_coverage_end=last_price_end.isoformat(timespec="minutes"),
     )

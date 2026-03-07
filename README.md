@@ -132,7 +132,7 @@ Per-device planning entity:
 All services are in domain `electricity_price_suite`.
 
 - `refresh_timeline`, `inject_slots`, `optimize_device`, `add_source`, `list_sources`, `delete_source` use a timeline target.
-- `manage_plan` uses one or more plan entity targets.
+- `manage_plan` and `reoptimize_plan` use one or more plan entity targets.
 
 ---
 
@@ -274,6 +274,7 @@ Computes best start for one device using timeline data.
 - `best_end`: planned finish datetime (ISO) or `null`.
 - `best_cost`: computed optimization cost or `null`.
 - `reason`: explanatory reason for `no-candidate`.
+- `requested_latest_start`: the originally requested latest-start boundary before any truncation by missing price data.
 
 #### Common `reason` values
 
@@ -314,6 +315,34 @@ Resets or deletes existing plan entities.
 - `results`: list of per-target results:
   - `status`: `reset | deleted | not_found`
   - `plan_entity_id`
+  - `reason`
+
+---
+
+### `reoptimize_plan`
+
+Recomputes one or more existing plan entities using the constraints already stored on the plan itself.
+
+This is useful when:
+
+- new price data has arrived,
+- the original plan still exists,
+- and you want to recompute the same plan without rebuilding the full `optimize_device` payload.
+
+#### Inputs
+
+- `target` (required).
+  - Expected: one or more existing plan entities (`sensor.<timeline_slug>_plan_<device_slug>`).
+  - Effect: each selected plan is re-optimized against the current timeline data using its stored profile, duration, cost tolerance, and requested latest-start boundary.
+
+#### Response (typical)
+
+- `results`: list of per-target results:
+  - `status`: `ok | no-candidate | not_found | not_reoptimized`
+  - `plan_entity_id`
+  - `best_start`
+  - `best_end`
+  - `best_cost`
   - `reason`
 
 ---

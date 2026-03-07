@@ -124,8 +124,8 @@ views:
             name: Window end
           - type: attribute
             entity: sensor.test_timeline_plan_test_device
-            attribute: requested_window_end
-            name: Requested window end
+            attribute: requested_latest_start
+            name: Requested latest start
           - type: attribute
             entity: sensor.test_timeline_plan_test_device
             attribute: window_truncated_by_data

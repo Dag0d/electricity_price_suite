@@ -220,6 +220,10 @@
         }
       }
     },
+    "reoptimize_plan": {
+      "name": "Re-optimize plan",
+      "description": "Recompute one or more existing plan entities using their stored constraints and the current timeline data."
+    },
     "add_source": {
       "name": "Add source",
       "description": "Add or update one pull source in the source chain.",

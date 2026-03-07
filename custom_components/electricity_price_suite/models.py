@@ -79,7 +79,7 @@ class PlanPayload(TypedDict):
     profile_used: list[float]
     profile_source: str
     profile_meta: dict[str, Any] | None
-    requested_window_end: str | None
+    requested_latest_start: str | None
     window_truncated_by_data: bool
     price_coverage_end_at_compute: str | None
     computed_at: str
@@ -113,7 +113,7 @@ class PlanResult:
     duration_minutes: float | None
     billing_slot_minutes: int
     profile_slot_minutes: int
-    requested_window_end: str | None = None
+    requested_latest_start: str | None = None
     window_truncated_by_data: bool = False
     price_coverage_end: str | None = None
 

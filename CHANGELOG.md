@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.1 - 2026-03-07
+
+### Added
+- Added `reoptimize_plan` so existing plan entities can be recomputed directly from their stored constraints and current timeline data.
+
+### Changed
+- Renamed the persisted plan/debug attribute from `requested_window_end` to `requested_latest_start` so it matches its actual meaning.
+
+### Fixed
+- Fixed a regression in the optimizer where `requested_latest_start` was converted to a string too early, causing `datetime` vs `str` comparison failures on normal optimize runs.
+
 ## 1.1.0 - 2026-03-07
 
 ### Changed
