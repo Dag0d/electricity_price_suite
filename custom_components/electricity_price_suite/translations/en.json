@@ -172,13 +172,13 @@
           "name": "Align start to billing slot",
           "description": "If true, candidate starts are restricted to billing slot boundaries."
         },
-        "epsilon_rel": {
-          "name": "Epsilon (relative)",
-          "description": "Relative tolerance for near-optimal earliest selection."
+        "max_extra_cost_percent": {
+          "name": "Max extra cost percent",
+          "description": "Maximum extra cost in percent that is still acceptable when prefer_earliest is enabled."
         },
         "prefer_earliest": {
           "name": "Prefer earliest",
-          "description": "Pick earliest candidate within epsilon threshold instead of strict absolute minimum."
+          "description": "Pick the earliest candidate within the allowed extra-cost threshold instead of the strict absolute minimum."
         },
         "start_mode": {
           "name": "Start mode",
@@ -198,15 +198,11 @@
         },
         "latest_start": {
           "name": "Latest start (ISO)",
-          "description": "Absolute latest allowed start datetime (ISO)."
+          "description": "Expert override for absolute latest allowed start datetime (ISO). Internally normalized to the optimizer latest-start boundary."
         },
         "latest_finish": {
           "name": "Latest finish (ISO)",
-          "description": "Absolute latest allowed finish datetime (ISO)."
-        },
-        "dry_run": {
-          "name": "Dry run",
-          "description": "Run optimization and persist plan metadata with dry_run marker."
+          "description": "Expert override for absolute latest allowed finish datetime (ISO). Internally converted to a derived latest start."
         }
       }
     },

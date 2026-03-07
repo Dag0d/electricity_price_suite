@@ -132,6 +132,10 @@ views:
             name: Window truncated by data
           - type: attribute
             entity: sensor.test_timeline_plan_test_device
+            attribute: max_extra_cost_percent
+            name: Max extra cost percent
+          - type: attribute
+            entity: sensor.test_timeline_plan_test_device
             attribute: profile_source
             name: Profile source
           - type: attribute
@@ -157,15 +161,31 @@ views:
           **5_optimize_basic**
           Creates `sensor.test_timeline_plan_test_device`.
 
-          **6_plan_reset**
+          **6_optimize_service_validation_missing_runtime**
+          Calls the optimize service without duration and without profile data.
+          Expected result: the service call is rejected immediately by validation before the optimizer runs.
+
+          **7_optimize_invalid_latest_start**
+          Runs the optimizer with an invalid absolute latest start string.
+          Expected result: `status=no-candidate`, `reason=invalid_latest_start`.
+
+          **8_optimize_invalid_deadline_minutes**
+          Runs the optimizer with a negative relative deadline.
+          Expected result: `status=no-candidate`, `reason=invalid_deadline_minutes`.
+
+          **9_optimize_all_candidates_in_past**
+          Uses a past-biased start anchor plus an absolute latest start at the current minute so every candidate lies at or before `now`.
+          Expected result: `status=no-candidate`, `reason=all_candidates_in_past`.
+
+          **10_plan_reset**
           Keeps the plan entity but clears the planned start and sets `status=reset`.
 
-          **7_plan_delete**
+          **11_plan_delete**
           Removes the persisted plan entity.
 
-          **8_refresh_primary_overwrite**
+          **12_refresh_primary_overwrite**
           Clears stored rows for today and tomorrow, then fetches them again from the real source chain.
 
-          **9_optimizer_boundary_edge_case**
+          **13_optimizer_boundary_edge_case**
           Clears today/tomorrow, injects quarter-hour prices, waits until exactly `HH:00:15`, `HH:15:15`, `HH:30:15`, or `HH:45:15`, and then runs the optimizer.
           Expected result: the plan must start on the *next* quarter boundary, never on the boundary that is already 15 seconds in the past.

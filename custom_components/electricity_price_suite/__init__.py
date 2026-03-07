@@ -15,7 +15,7 @@ from homeassistant.helpers.event import async_call_later
 
 from .const import (
     ATTR_SLOTS,
-    DEFAULT_EPSILON_REL,
+    DEFAULT_MAX_EXTRA_COST_PERCENT,
     DEFAULT_PREFER_EARLIEST,
     DOMAIN,
     PLATFORMS,
@@ -66,7 +66,9 @@ OPTIMIZE_SCHEMA = vol.Schema(
         vol.Optional("consumption_profile_entity"): cv.entity_id,
         vol.Optional("consumption_profile_desired_slot_minutes"): vol.Coerce(int),
         vol.Optional("align_start_to_billing_slot", default=False): cv.boolean,
-        vol.Optional("epsilon_rel", default=DEFAULT_EPSILON_REL): vol.Coerce(float),
+        vol.Optional("max_extra_cost_percent", default=DEFAULT_MAX_EXTRA_COST_PERCENT): vol.All(
+            vol.Coerce(float), vol.Range(min=0)
+        ),
         vol.Optional("prefer_earliest", default=DEFAULT_PREFER_EARLIEST): cv.boolean,
         vol.Optional("start_mode", default="now"): vol.In(["now", "in"]),
         vol.Optional("start_in_minutes", default=0.0): vol.Coerce(float),
@@ -74,7 +76,6 @@ OPTIMIZE_SCHEMA = vol.Schema(
         vol.Optional("deadline_minutes"): vol.Coerce(float),
         vol.Optional("latest_start"): cv.string,
         vol.Optional("latest_finish"): cv.string,
-        vol.Optional("dry_run", default=False): cv.boolean,
     }
 )
 
@@ -192,7 +193,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             consumption_profile_entity=call.data.get("consumption_profile_entity"),
             consumption_profile_desired_slot_minutes=call.data.get("consumption_profile_desired_slot_minutes"),
             align_start_to_billing_slot=call.data["align_start_to_billing_slot"],
-            epsilon_rel=call.data["epsilon_rel"],
+            max_extra_cost_percent=call.data["max_extra_cost_percent"],
             prefer_earliest=call.data["prefer_earliest"],
             start_mode=call.data["start_mode"],
             start_in_minutes=call.data["start_in_minutes"],
@@ -200,7 +201,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             deadline_minutes=call.data.get("deadline_minutes"),
             latest_start=call.data.get("latest_start"),
             latest_finish=call.data.get("latest_finish"),
-            dry_run=call.data["dry_run"],
         )
         return response
 

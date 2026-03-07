@@ -94,12 +94,74 @@ action:
               deadline_mode: finish_within
               deadline_minutes: 720
               align_start_to_billing_slot: true
-              dry_run: false
 
       - conditions:
           - condition: state
             entity_id: input_select.electricity_price_suite_test_case
-            state: "6_plan_reset"
+            state: "6_optimize_service_validation_missing_runtime"
+        sequence:
+          - action: electricity_price_suite.optimize_device
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              device_name: Test Device
+              start_mode: now
+              deadline_mode: finish_within
+              deadline_minutes: 720
+              align_start_to_billing_slot: true
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "7_optimize_invalid_latest_start"
+        sequence:
+          - action: electricity_price_suite.optimize_device
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              device_name: Test Device
+              duration_minutes: 30
+              start_mode: now
+              latest_start: "not-a-date"
+              align_start_to_billing_slot: true
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "8_optimize_invalid_deadline_minutes"
+        sequence:
+          - action: electricity_price_suite.optimize_device
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              device_name: Test Device
+              duration_minutes: 30
+              start_mode: now
+              deadline_mode: finish_within
+              deadline_minutes: -5
+              align_start_to_billing_slot: true
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "9_optimize_all_candidates_in_past"
+        sequence:
+          - action: electricity_price_suite.optimize_device
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              device_name: Test Device
+              duration_minutes: 15
+              start_mode: in
+              start_in_minutes: -15
+              latest_start: >
+                {{ now().replace(second=0, microsecond=0).isoformat() }}
+              align_start_to_billing_slot: true
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "10_plan_reset"
         sequence:
           - action: electricity_price_suite.manage_plan
             target:
@@ -111,7 +173,7 @@ action:
       - conditions:
           - condition: state
             entity_id: input_select.electricity_price_suite_test_case
-            state: "7_plan_delete"
+            state: "11_plan_delete"
         sequence:
           - action: electricity_price_suite.manage_plan
             target:
@@ -123,7 +185,7 @@ action:
       - conditions:
           - condition: state
             entity_id: input_select.electricity_price_suite_test_case
-            state: "8_refresh_primary_overwrite"
+            state: "12_refresh_primary_overwrite"
         sequence:
           - action: electricity_price_suite.refresh_timeline
             target:
@@ -134,7 +196,7 @@ action:
       - conditions:
           - condition: state
             entity_id: input_select.electricity_price_suite_test_case
-            state: "9_optimizer_boundary_edge_case"
+            state: "13_optimizer_boundary_edge_case"
         sequence:
           - variables:
               now_ts: "{{ as_timestamp(now()) }}"
@@ -191,7 +253,6 @@ action:
               start_mode: now
               deadline_mode: start_within
               deadline_minutes: 15
-              epsilon_rel: 0
+              max_extra_cost_percent: 0
               prefer_earliest: true
               align_start_to_billing_slot: true
-              dry_run: false

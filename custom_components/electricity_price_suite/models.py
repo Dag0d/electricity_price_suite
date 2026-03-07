@@ -72,7 +72,7 @@ class PlanPayload(TypedDict):
     duration_minutes: float | None
     billing_slot_minutes: int | None
     profile_slot_minutes: int | None
-    epsilon_rel: float | None
+    max_extra_cost_percent: float | None
     prefer_earliest: bool | None
     align_start_to_billing_slot: bool | None
     candidates: int
@@ -83,7 +83,6 @@ class PlanPayload(TypedDict):
     window_truncated_by_data: bool
     price_coverage_end_at_compute: str | None
     computed_at: str
-    dry_run: bool
     timeline_entity: str
 
 

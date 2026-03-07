@@ -172,13 +172,13 @@
           "name": "Start auf Abrechnungsslot ausrichten",
           "description": "Wenn true, werden Kandidatenstarts auf Abrechnungsslot-Grenzen begrenzt."
         },
-        "epsilon_rel": {
-          "name": "Epsilon (relativ)",
-          "description": "Relative Toleranz für die Auswahl eines frühen, nahezu optimalen Kandidaten."
+        "max_extra_cost_percent": {
+          "name": "Maximaler Mehrpreis in Prozent",
+          "description": "Maximal akzeptierter Mehrpreis in Prozent, wenn prefer_earliest aktiviert ist."
         },
         "prefer_earliest": {
           "name": "Frühesten Start bevorzugen",
-          "description": "Wählt den frühesten Kandidaten innerhalb der Epsilon-Schwelle statt des strikten globalen Minimums."
+          "description": "Wählt den frühesten Kandidaten innerhalb der erlaubten Mehrpreis-Schwelle statt des strikten globalen Minimums."
         },
         "start_mode": {
           "name": "Startmodus",
@@ -198,15 +198,11 @@
         },
         "latest_start": {
           "name": "Spätester Start (ISO)",
-          "description": "Absolute Obergrenze für den Startzeitpunkt (ISO-Zeitstempel)."
+          "description": "Experten-Override für den absolut spätesten erlaubten Startzeitpunkt (ISO-Zeitstempel). Intern wird dies auf die späteste Startgrenze des Optimizers normalisiert."
         },
         "latest_finish": {
           "name": "Spätestes Ende (ISO)",
-          "description": "Absolute Obergrenze für den Endzeitpunkt (ISO-Zeitstempel)."
-        },
-        "dry_run": {
-          "name": "Testlauf",
-          "description": "Führt die Optimierung aus und speichert den Plan mit gesetzter dry_run-Markierung."
+          "description": "Experten-Override für den absolut spätesten erlaubten Endzeitpunkt (ISO-Zeitstempel). Intern wird daraus ein spätester Start abgeleitet."
         }
       }
     },

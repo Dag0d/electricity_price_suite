@@ -258,15 +258,15 @@ optimize_device:
       example: "false"
       selector:
         boolean: {}
-    epsilon_rel:
+    max_extra_cost_percent:
       required: false
-      description: Relative tolerance for near-optimal earliest selection.
-      example: "0.01"
+      description: Maximum extra cost in percent that is still acceptable when prefer_earliest is enabled.
+      example: "1"
       selector:
         number:
           min: 0
-          max: 1
-          step: 0.001
+          max: 100
+          step: 0.1
           mode: box
     prefer_earliest:
       required: false
@@ -313,23 +313,16 @@ optimize_device:
           mode: box
     latest_start:
       required: false
-      description: Absolute latest allowed start datetime (ISO).
+      description: Expert override for absolute latest allowed start datetime (ISO). Internally normalized to the optimizer latest-start boundary.
       example: "2026-03-06T21:30:00+01:00"
       selector:
         text: {}
     latest_finish:
       required: false
-      description: Absolute latest allowed finish datetime (ISO).
+      description: Expert override for absolute latest allowed finish datetime (ISO). Internally converted to a derived latest start.
       example: "2026-03-06T23:30:00+01:00"
       selector:
         text: {}
-    dry_run:
-      required: false
-      description: Run optimization and persist plan metadata with dry_run marker.
-      example: "false"
-      selector:
-        boolean: {}
-
 manage_plan:
   name: Manage plan
   description: Reset or delete existing plan entities.

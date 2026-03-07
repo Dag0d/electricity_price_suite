@@ -242,12 +242,12 @@ Computes best start for one device using timeline data.
 - `align_start_to_billing_slot` (optional, default `false`).
   - Expected: boolean.
   - Effect: candidate starts are forced to billing boundaries.
-- `epsilon_rel` (optional, default `0.01`).
+- `max_extra_cost_percent` (optional, default `1`).
   - Expected: float >= 0.
-  - Effect: near-optimal threshold for earliest selection (`min_cost * (1 + epsilon_rel)`).
+  - Effect: maximum additional cost in percent that is still acceptable when `prefer_earliest=true`.
 - `prefer_earliest` (optional, default `true`).
   - Expected: boolean.
-  - Effect: pick earliest candidate within threshold instead of strict absolute minimum.
+  - Effect: pick the earliest candidate within the allowed extra-cost threshold instead of the strict absolute minimum.
 - `start_mode` (optional, default `now`).
   - Expected: `now | in`.
   - Effect: defines start anchor (`now` or `now + start_in_minutes`).
@@ -262,14 +262,10 @@ Computes best start for one device using timeline data.
   - Effect: relative limit for selected `deadline_mode`.
 - `latest_start` (optional).
   - Expected: ISO datetime string.
-  - Effect: absolute upper bound for start.
+  - Effect: expert override for absolute latest allowed start. Internally normalized to the optimizer's `latest_start` boundary.
 - `latest_finish` (optional).
   - Expected: ISO datetime string.
-  - Effect: absolute upper bound for finish.
-- `dry_run` (optional, default `false`).
-  - Expected: boolean.
-  - Effect: currently stored in plan metadata for orchestration/debug semantics.
-
+  - Effect: expert override for absolute latest allowed finish. Internally converted to a derived `latest_start`.
 #### Response (typical)
 
 - `status`: `ok | no-candidate`
@@ -278,6 +274,22 @@ Computes best start for one device using timeline data.
 - `best_end`: planned finish datetime (ISO) or `null`.
 - `best_cost`: computed optimization cost or `null`.
 - `reason`: explanatory reason for `no-candidate`.
+
+#### Common `reason` values
+
+- `no_valid_slots_after_parse`: no usable price slots were available after parsing.
+- `no_duration_or_profile`: neither duration nor usable energy profile was provided.
+- `invalid_energy_profile`: the supplied profile could not be parsed as numbers.
+- `invalid_duration_minutes`: duration was missing, zero, negative, or not finite.
+- `invalid_deadline_minutes`: deadline offset was negative or not finite.
+- `invalid_latest_start`: `latest_start` was provided but not parseable as ISO datetime.
+- `invalid_latest_finish`: `latest_finish` was provided but not parseable as ISO datetime.
+- `invalid_max_extra_cost_percent`: extra-cost threshold was negative or not finite.
+- `window_too_short_for_duration`: the allowed search window is shorter than the runtime.
+- `all_candidates_in_past`: all candidate starts fell at or before the current time.
+- `incomplete_price_coverage_for_candidates`: price data did not fully cover any candidate run.
+- `candidates_blocked_by_time_and_price_coverage`: some candidates were already in the past and the remaining ones had incomplete price coverage.
+- `no_candidate_after_constraints`: constraints left no valid candidate, but no more specific optimizer reason applied.
 
 ---
 

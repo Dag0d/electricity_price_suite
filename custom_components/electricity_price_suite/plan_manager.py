@@ -52,7 +52,7 @@ def build_reset_payload(device_name: str, timeline_entity_id: str, timezone_name
         "duration_minutes": None,
         "billing_slot_minutes": None,
         "profile_slot_minutes": None,
-        "epsilon_rel": None,
+        "max_extra_cost_percent": None,
         "prefer_earliest": None,
         "align_start_to_billing_slot": None,
         "candidates": 0,
@@ -63,7 +63,6 @@ def build_reset_payload(device_name: str, timeline_entity_id: str, timezone_name
         "window_truncated_by_data": False,
         "price_coverage_end_at_compute": None,
         "computed_at": datetime.now(ZoneInfo(timezone_name)).isoformat(timespec="seconds"),
-        "dry_run": False,
         "timeline_entity": timeline_entity_id,
     }
 
@@ -76,9 +75,8 @@ def build_plan_payload(
     deadline_minutes: float | None,
     latest_start: str | None,
     latest_finish: str | None,
-    epsilon_rel: float,
+    max_extra_cost_percent: float,
     prefer_earliest: bool,
-    dry_run: bool,
     align_start_to_billing_slot: bool,
     profile_source: str,
     profile_meta: dict[str, Any] | None,
@@ -103,7 +101,7 @@ def build_plan_payload(
         "duration_minutes": result.duration_minutes,
         "billing_slot_minutes": result.billing_slot_minutes,
         "profile_slot_minutes": result.profile_slot_minutes,
-        "epsilon_rel": epsilon_rel,
+        "max_extra_cost_percent": max_extra_cost_percent,
         "prefer_earliest": prefer_earliest,
         "align_start_to_billing_slot": align_start_to_billing_slot,
         "candidates": result.candidates,
@@ -114,7 +112,6 @@ def build_plan_payload(
         "window_truncated_by_data": result.window_truncated_by_data,
         "price_coverage_end_at_compute": result.price_coverage_end,
         "computed_at": datetime.now(ZoneInfo(timezone_name)).isoformat(timespec="seconds"),
-        "dry_run": dry_run,
         "timeline_entity": timeline_entity_id,
     }
 
@@ -208,7 +205,7 @@ def reoptimize_plan_payload(
         duration_minutes=float(payload["duration_minutes"]) if payload.get("duration_minutes") is not None else None,
         energy_profile=[float(value) for value in payload.get("profile_used", [])],
         profile_slot_minutes=int(payload.get("profile_slot_minutes") or DEFAULT_BILLING_SLOT_MINUTES),
-        epsilon_rel=float(payload.get("epsilon_rel") or 0.01),
+        max_extra_cost_percent=float(payload.get("max_extra_cost_percent") or 1.0),
         prefer_earliest=bool(payload.get("prefer_earliest", True)),
         start_mode="now",
         start_in_minutes=0.0,

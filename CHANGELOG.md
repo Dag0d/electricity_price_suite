@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.0 - 2026-03-07
+
+### Changed
+- Reworked the optimizer internals so all runtime window handling is normalized to `earliest_start` and `latest_start` before candidate evaluation.
+- Cleaned up the optimizer/runtime split by moving plan persistence and plan re-optimization responsibilities into dedicated helpers while keeping timeline behavior unchanged.
+- Renamed the optimizer tolerance input from `epsilon_rel` to `max_extra_cost_percent` for clearer service and UI semantics.
+- Removed the unused `dry_run` path from the optimizer service and persisted plan payload.
+- Clarified `latest_start` and `latest_finish` as expert overrides in the service documentation and translations.
+
+### Fixed
+- Fixed a refactor regression where the optimizer still referenced the removed `ws` variable on successful runs.
+- Added a defensive candidate guard so starts at or before `now` are always rejected even if a future refactor touches grid rounding again.
+- Improved optimizer validation and failure handling for invalid duration/profile input, invalid absolute deadline timestamps, invalid deadline values, and invalid extra-cost thresholds.
+- Improved no-candidate reasoning so plan entities now expose more specific debug reasons such as `all_candidates_in_past` or incomplete price coverage.
+
+### Added
+- Expanded the manual test harness with dedicated optimizer validation and failure scenarios in addition to the existing success-path and boundary tests.
+
 ## 1.0.2 - 2026-03-07
 
 ### Fixed

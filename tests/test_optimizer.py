@@ -16,7 +16,7 @@ def test_optimizer_allows_fine_grained_profile_start():
         duration_minutes=20,
         energy_profile=[1.0, 1.0, 1.0, 1.0],
         profile_slot_minutes=5,
-        epsilon_rel=0.0,
+        max_extra_cost_percent=0.0,
         prefer_earliest=False,
         start_mode="now",
         start_in_minutes=0,
@@ -46,7 +46,7 @@ def test_optimizer_no_candidate_when_window_too_short():
         duration_minutes=45,
         energy_profile=None,
         profile_slot_minutes=None,
-        epsilon_rel=0.01,
+        max_extra_cost_percent=1.0,
         prefer_earliest=True,
         start_mode="now",
         start_in_minutes=0,
@@ -76,7 +76,7 @@ def test_optimizer_ceil_does_not_return_already_passed_slot_start():
         duration_minutes=15,
         energy_profile=None,
         profile_slot_minutes=None,
-        epsilon_rel=0.0,
+        max_extra_cost_percent=0.0,
         prefer_earliest=True,
         start_mode="now",
         start_in_minutes=0,
@@ -90,3 +90,90 @@ def test_optimizer_ceil_does_not_return_already_passed_slot_start():
 
     assert result.status == "ok"
     assert result.best_start == "2026-03-07T16:00+01:00"
+
+
+def test_optimizer_rejects_invalid_latest_start():
+    slots = [
+        {"start_time": "2026-03-07T16:00:00+01:00", "price_per_kwh": 0.20},
+        {"start_time": "2026-03-07T16:15:00+01:00", "price_per_kwh": 0.25},
+    ]
+
+    result = optimize_runtime(
+        slots=slots,
+        timezone_name="Europe/Berlin",
+        billing_slot_minutes=15,
+        duration_minutes=15,
+        energy_profile=None,
+        profile_slot_minutes=None,
+        max_extra_cost_percent=0.0,
+        prefer_earliest=True,
+        start_mode="now",
+        start_in_minutes=0,
+        deadline_mode="none",
+        deadline_minutes=None,
+        latest_start="not-a-date",
+        latest_finish=None,
+        align_start_to_billing_slot=True,
+        reference_time="2026-03-07T15:45:15+01:00",
+    )
+
+    assert result.status == "no-candidate"
+    assert result.reason == "invalid_latest_start"
+
+
+def test_optimizer_rejects_negative_extra_cost_percent():
+    slots = [
+        {"start_time": "2026-03-07T16:00:00+01:00", "price_per_kwh": 0.20},
+        {"start_time": "2026-03-07T16:15:00+01:00", "price_per_kwh": 0.25},
+    ]
+
+    result = optimize_runtime(
+        slots=slots,
+        timezone_name="Europe/Berlin",
+        billing_slot_minutes=15,
+        duration_minutes=15,
+        energy_profile=None,
+        profile_slot_minutes=None,
+        max_extra_cost_percent=-1.0,
+        prefer_earliest=True,
+        start_mode="now",
+        start_in_minutes=0,
+        deadline_mode="none",
+        deadline_minutes=None,
+        latest_start=None,
+        latest_finish=None,
+        align_start_to_billing_slot=True,
+        reference_time="2026-03-07T15:45:15+01:00",
+    )
+
+    assert result.status == "no-candidate"
+    assert result.reason == "invalid_max_extra_cost_percent"
+
+
+def test_optimizer_reports_all_candidates_in_past():
+    slots = [
+        {"start_time": "2026-03-07T15:45:00+01:00", "price_per_kwh": 0.20},
+        {"start_time": "2026-03-07T16:00:00+01:00", "price_per_kwh": 0.25},
+    ]
+
+    result = optimize_runtime(
+        slots=slots,
+        timezone_name="Europe/Berlin",
+        billing_slot_minutes=15,
+        duration_minutes=15,
+        energy_profile=None,
+        profile_slot_minutes=None,
+        max_extra_cost_percent=0.0,
+        prefer_earliest=True,
+        start_mode="now",
+        start_in_minutes=0,
+        deadline_mode="start_within",
+        deadline_minutes=0,
+        latest_start=None,
+        latest_finish=None,
+        align_start_to_billing_slot=True,
+        reference_time="2026-03-07T15:45:15+01:00",
+    )
+
+    assert result.status == "no-candidate"
+    assert result.reason == "all_candidates_in_past"
