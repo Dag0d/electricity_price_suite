@@ -4,13 +4,33 @@
     "step": {
       "user": {
         "title": "Electricity Price Suite",
-        "description": "Create a timeline and set base behavior.",
+        "description": "Choose what kind of suite entry you want to create.",
+        "data": {
+          "entry_type": "Entry type"
+        }
+      },
+      "timeline": {
+        "title": "Create Price Timeline",
+        "description": "Create one price timeline entry and configure its base behavior.",
         "data": {
           "timeline_name": "Timeline name",
           "currency": "Currency",
           "cache_retention_days": "Cache retention days",
           "round_decimals": "Round prices to decimals",
           "enable_current_price_sensor": "Enable current price sensor"
+        }
+      },
+      "profile_logger": {
+        "title": "Create Consumption Profile Logger",
+        "description": "Create one logger entry that learns profiles from a total-increasing energy sensor.",
+        "data": {
+          "name": "Logger name",
+          "energy_entity": "Energy entity",
+          "slot_minutes": "Slot minutes",
+          "max_power_kw": "Maximum power (kW)",
+          "auto_create_programs": "Auto-create unknown programs",
+          "allowed_programs": "Allowed program keys",
+          "blocked_programs": "Blocked program keys"
         }
       },
       "primary_type": {
@@ -62,18 +82,34 @@
       }
     },
     "error": {
-      "invalid_json": "Request payload must be valid JSON object."
+      "invalid_json": "Request payload must be valid JSON object.",
+      "invalid_energy_entity": "Entity was not found.",
+      "non_numeric_energy_state": "Entity state must be numeric.",
+      "unsupported_energy_unit": "Entity must use Wh or kWh.",
+      "invalid_energy_state_class": "Entity must use state_class total_increasing.",
+      "invalid": "Value is invalid."
     }
   },
   "options": {
     "step": {
-      "init": {
-        "title": "Electricity Price Suite options",
+      "timeline": {
+        "title": "Price Timeline options",
         "data": {
           "currency": "Currency",
           "cache_retention_days": "Cache retention days",
           "round_decimals": "Round prices to decimals",
           "enable_current_price_sensor": "Enable current price sensor"
+        }
+      },
+      "profile_logger": {
+        "title": "Consumption Profile Logger options",
+        "data": {
+          "energy_entity": "Energy entity",
+          "slot_minutes": "Slot minutes",
+          "max_power_kw": "Maximum power (kW)",
+          "auto_create_programs": "Auto-create unknown programs",
+          "allowed_programs": "Allowed program keys",
+          "blocked_programs": "Blocked program keys"
         }
       }
     }
@@ -156,17 +192,13 @@
           "name": "Billing slot minutes",
           "description": "Override billing slot length. If omitted, it is detected from timeline data."
         },
-        "consumption_profile_logger": {
-          "name": "Use Consumption Profile Logger",
-          "description": "Load profile from consumption_profile_logger.get_profile instead of manual profile payload."
+        "profile_logger_entity": {
+          "name": "Profile logger entity",
+          "description": "Meta sensor of an Electricity Price Suite profile logger. Used for direct internal profile loading."
         },
-        "consumption_profile_entity": {
-          "name": "Consumption profile entity",
-          "description": "Profile entity id used when consumption_profile_logger is true."
-        },
-        "consumption_profile_desired_slot_minutes": {
-          "name": "Desired profile slot minutes",
-          "description": "Optional requested slot size forwarded to get_profile."
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key to load from the selected profile logger, for example auto_2."
         },
         "align_start_to_billing_slot": {
           "name": "Align start to billing slot",
@@ -223,6 +255,78 @@
     "reoptimize_plan": {
       "name": "Re-optimize plan",
       "description": "Recompute one or more existing plan entities using their stored constraints and the current timeline data."
+    },
+    "start_profile_logging": {
+      "name": "Start profile logging",
+      "description": "Start a new consumption profile run for the selected profile logger.",
+      "fields": {
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key to start. Optional when the target is already a program profile entity."
+        }
+      }
+    },
+    "finish_profile_logging": {
+      "name": "Finish profile logging",
+      "description": "Finish the active run and persist the updated profile.",
+      "fields": {
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key to finish. Optional when the target is already a program profile entity."
+        }
+      }
+    },
+    "abort_profile_logging": {
+      "name": "Abort profile logging",
+      "description": "Abort the active run and restore the profile snapshot from before start.",
+      "fields": {
+        "reason": {
+          "name": "Abort reason",
+          "description": "Abort reason stored with the logger runtime."
+        },
+        "program_key": {
+          "name": "Program key",
+          "description": "Optional program key guard. When set, it must match the active run."
+        }
+      }
+    },
+    "get_consumption_profile": {
+      "name": "Get consumption profile",
+      "description": "Return the list of known programs, or one stored profile with optional resampling.",
+      "fields": {
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key to export. If omitted on the meta sensor, the service returns the known program list."
+        },
+        "desired_slot_minutes": {
+          "name": "Desired slot minutes",
+          "description": "Optional resampled slot size. Must be an integer multiple or divisor of the stored slot length."
+        },
+        "debug": {
+          "name": "Debug",
+          "description": "Include debug details in the exported profile payload where available."
+        }
+      }
+    },
+    "reset_consumption_profile": {
+      "name": "Reset consumption profile",
+      "description": "Clear one stored profile but keep the profile entity.",
+      "fields": {
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key to reset. Optional when the target is already a program profile entity."
+        }
+      }
+    },
+    "delete_consumption_profile": {
+      "name": "Delete consumption profile",
+      "description": "Delete one stored profile and remove its entity.",
+      "fields": {
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key to delete. Optional when the target is already a program profile entity."
+        }
+      }
     },
     "add_source": {
       "name": "Add source",

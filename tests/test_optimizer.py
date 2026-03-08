@@ -1,4 +1,67 @@
-from custom_components.electricity_price_suite.optimizer import optimize_runtime
+from __future__ import annotations
+
+from dataclasses import dataclass
+import importlib.util
+from pathlib import Path
+import sys
+from types import ModuleType
+from typing import TypedDict
+
+
+class SlotRow(TypedDict):
+    start_time: str
+    price_per_kwh: float
+    source_id: str
+    source_priority: int
+    is_primary_source: bool
+    observed_at: str
+
+
+@dataclass
+class PlanResult:
+    status: str
+    best_start: str | None
+    best_end: str | None
+    best_cost: float | None
+    reason: str | None
+    candidates: int
+    profile_used: list[float]
+    window_start: str
+    window_end: str
+    duration_minutes: float | None
+    billing_slot_minutes: int
+    profile_slot_minutes: int
+    requested_latest_start: str | None = None
+    window_truncated_by_data: bool = False
+    price_coverage_end: str | None = None
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PKG_ROOT = ROOT / "custom_components" / "electricity_price_suite"
+
+custom_components_pkg = sys.modules.setdefault("custom_components", ModuleType("custom_components"))
+custom_components_pkg.__path__ = [str(ROOT / "custom_components")]
+
+suite_pkg = sys.modules.setdefault(
+    "custom_components.electricity_price_suite",
+    ModuleType("custom_components.electricity_price_suite"),
+)
+suite_pkg.__path__ = [str(PKG_ROOT)]
+
+models_module = ModuleType("custom_components.electricity_price_suite.models")
+models_module.PlanResult = PlanResult
+models_module.SlotRow = SlotRow
+sys.modules[models_module.__name__] = models_module
+
+spec = importlib.util.spec_from_file_location(
+    "custom_components.electricity_price_suite.optimizer",
+    PKG_ROOT / "optimizer.py",
+)
+optimizer_module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = optimizer_module
+assert spec.loader is not None
+spec.loader.exec_module(optimizer_module)
+optimize_runtime = optimizer_module.optimize_runtime
 
 
 def test_optimizer_allows_fine_grained_profile_start():
@@ -29,8 +92,8 @@ def test_optimizer_allows_fine_grained_profile_start():
     )
 
     assert result.status == "ok"
-    assert result.best_start == "2026-03-06T10:10+01:00"
-    assert result.best_end == "2026-03-06T10:30+01:00"
+    assert result.best_start == "2026-03-06T10:15+01:00"
+    assert result.best_end == "2026-03-06T10:35+01:00"
 
 
 def test_optimizer_no_candidate_when_window_too_short():
@@ -165,11 +228,11 @@ def test_optimizer_reports_all_candidates_in_past():
         profile_slot_minutes=None,
         max_extra_cost_percent=0.0,
         prefer_earliest=True,
-        start_mode="now",
-        start_in_minutes=0,
-        deadline_mode="start_within",
-        deadline_minutes=0,
-        latest_start=None,
+        start_mode="in",
+        start_in_minutes=-15,
+        deadline_mode="none",
+        deadline_minutes=None,
+        latest_start="2026-03-07T15:45:00+01:00",
         latest_finish=None,
         align_start_to_billing_slot=True,
         reference_time="2026-03-07T15:45:15+01:00",

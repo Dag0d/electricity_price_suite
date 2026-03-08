@@ -6,11 +6,10 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from homeassistant.core import HomeAssistant
-
 from .const import DEFAULT_BILLING_SLOT_MINUTES
 from .models import PlanPayload, PlanResult
 from .optimizer import optimize_runtime
+from .logger_runtime import ProfileLoggerRuntime
 
 
 def build_no_candidate_result(timezone_name: str, reason: str) -> PlanResult:
@@ -116,76 +115,52 @@ def build_plan_payload(
     }
 
 
-async def load_consumption_profile_logger(
-    hass: HomeAssistant,
+def load_profile_logger_profile(
+    logger_runtime: ProfileLoggerRuntime,
     *,
-    consumption_profile_entity: str | None,
-    desired_slot_minutes: int | None,
+    profile_logger_entity: str,
+    program_key: str | None,
 ) -> tuple[list[float] | None, float | None, int | None, dict[str, Any] | None, str | None]:
-    """Load a profile from consumption_profile_logger.get_profile."""
+    """Load one profile directly from an internal logger runtime."""
 
-    if not consumption_profile_entity:
-        return None, None, None, None, "missing_consumption_profile_entity"
+    if not program_key:
+        return None, None, None, None, "missing_program_key"
 
-    payload: dict[str, Any] = {"entity_id": consumption_profile_entity}
-    if desired_slot_minutes is not None:
-        payload["desired_slot_minutes"] = int(desired_slot_minutes)
+    payload = logger_runtime.get_profile_export(program_key)
+    if payload is None:
+        runtime_data = logger_runtime.get_profile_runtime_data(program_key)
+        if runtime_data is None:
+            return None, None, None, None, "profile_not_found"
+        return None, None, None, None, "profile_export_unavailable"
 
-    try:
-        response = await hass.services.async_call(
-            "consumption_profile_logger",
-            "get_profile",
-            payload,
-            blocking=True,
-            return_response=True,
-        )
-    except Exception as err:  # pragma: no cover - defensive
-        return None, None, None, None, f"consumption_profile_call_failed:{err}"
-    if not isinstance(response, dict):
-        return None, None, None, None, "consumption_profile_invalid_response"
-
-    if not bool(response.get("ok")):
-        code = response.get("code")
-        message = response.get("message")
-        reason = "consumption_profile_not_ok"
-        if code:
-            reason += f":{code}"
-        if message:
-            reason += f":{message}"
-        return None, None, None, None, reason
-
-    profile = response.get("profile")
-    if not isinstance(profile, dict):
-        return None, None, None, None, "consumption_profile_missing_profile"
-
-    slots_kwh = profile.get("slots_kwh")
+    slots_kwh = payload.get("slots_kwh")
     if not isinstance(slots_kwh, list) or not slots_kwh:
-        return None, None, None, None, "consumption_profile_missing_slots"
+        return None, None, None, None, "profile_missing_slots"
     try:
         energy_profile = [float(value) for value in slots_kwh]
     except (TypeError, ValueError):
-        return None, None, None, None, "consumption_profile_invalid_slots"
+        return None, None, None, None, "profile_invalid_slots"
 
     try:
-        slot_minutes = int(profile.get("slot_minutes"))
+        slot_minutes = int(payload.get("slot_minutes"))
     except (TypeError, ValueError):
-        return None, None, None, None, "consumption_profile_invalid_slot_minutes"
+        return None, None, None, None, "profile_invalid_slot_minutes"
     if slot_minutes <= 0:
-        return None, None, None, None, "consumption_profile_invalid_slot_minutes"
+        return None, None, None, None, "profile_invalid_slot_minutes"
 
     try:
-        runtime_minutes = float(profile.get("runtime_minutes"))
+        runtime_minutes = float(payload.get("runtime_minutes"))
     except (TypeError, ValueError):
         runtime_minutes = float(len(energy_profile) * slot_minutes)
 
     profile_meta = {
-        "entity_id": consumption_profile_entity,
-        "logger_id": profile.get("logger_id"),
-        "logger_name": profile.get("logger_name"),
-        "program_key": profile.get("program_key"),
-        "program_name": profile.get("program_name"),
-        "avg_total_kwh": profile.get("avg_total_kwh"),
-        "last_updated": profile.get("last_updated"),
+        "entity_id": profile_logger_entity,
+        "logger_id": payload.get("logger_id"),
+        "logger_name": payload.get("logger_name"),
+        "program_key": payload.get("program_key"),
+        "program_name": payload.get("program_name"),
+        "avg_total_kwh": payload.get("avg_total_kwh"),
+        "last_updated": payload.get("last_updated"),
     }
     return energy_profile, runtime_minutes, slot_minutes, profile_meta, None
 
@@ -195,6 +170,9 @@ def reoptimize_plan_payload(
     slots: list[dict[str, float | str]],
     payload: PlanPayload,
     timezone_name: str,
+    duration_minutes: float | None = None,
+    energy_profile: list[float] | None = None,
+    profile_slot_minutes: int | None = None,
 ) -> PlanResult:
     """Re-run optimization for an existing plan payload when price coverage expands."""
 
@@ -202,9 +180,21 @@ def reoptimize_plan_payload(
         slots=slots,
         timezone_name=timezone_name,
         billing_slot_minutes=int(payload.get("billing_slot_minutes") or DEFAULT_BILLING_SLOT_MINUTES),
-        duration_minutes=float(payload["duration_minutes"]) if payload.get("duration_minutes") is not None else None,
-        energy_profile=[float(value) for value in payload.get("profile_used", [])],
-        profile_slot_minutes=int(payload.get("profile_slot_minutes") or DEFAULT_BILLING_SLOT_MINUTES),
+        duration_minutes=(
+            duration_minutes
+            if duration_minutes is not None
+            else (float(payload["duration_minutes"]) if payload.get("duration_minutes") is not None else None)
+        ),
+        energy_profile=(
+            energy_profile
+            if energy_profile is not None
+            else [float(value) for value in payload.get("profile_used", [])]
+        ),
+        profile_slot_minutes=(
+            int(profile_slot_minutes)
+            if profile_slot_minutes is not None
+            else int(payload.get("profile_slot_minutes") or DEFAULT_BILLING_SLOT_MINUTES)
+        ),
         max_extra_cost_percent=float(payload.get("max_extra_cost_percent") or 1.0),
         prefer_earliest=bool(payload.get("prefer_earliest", True)),
         start_mode="now",

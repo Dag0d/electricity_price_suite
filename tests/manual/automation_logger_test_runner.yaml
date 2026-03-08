@@ -1,0 +1,173 @@
+alias: Electricity Price Suite Logger Test Runner
+mode: single
+trigger:
+  - platform: state
+    entity_id: input_button.electricity_price_suite_run_logger_test
+
+action:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "1_reset_energy_counter"
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.electricity_price_suite_logger_total_kwh
+            data:
+              value: 0
+          - delay:
+              seconds: 5
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "2_start_auto_1"
+        sequence:
+          - action: electricity_price_suite.start_profile_logging
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "3_add_0_120_kwh"
+        sequence:
+          - variables:
+              next_kwh: >
+                {{ (states('input_number.electricity_price_suite_logger_total_kwh') | float(0) + 0.120) | round(3) }}
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.electricity_price_suite_logger_total_kwh
+            data:
+              value: "{{ next_kwh }}"
+          - delay:
+              seconds: 5
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "4_finish_auto_1"
+        sequence:
+          - action: electricity_price_suite.finish_profile_logging
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "5_get_profile_auto_1"
+        sequence:
+          - action: electricity_price_suite.get_consumption_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1
+            response_variable: logger_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Logger Test - Profile auto_1
+              message: "{{ logger_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "6_get_profile_auto_1_resampled_5"
+        sequence:
+          - action: electricity_price_suite.get_consumption_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1
+              desired_slot_minutes: 5
+            response_variable: logger_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Logger Test - Profile auto_1 resampled
+              message: "{{ logger_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "7_start_missing_program_error"
+        sequence:
+          - action: electricity_price_suite.start_profile_logging
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "8_start_auto_1_and_abort"
+        sequence:
+          - action: electricity_price_suite.start_profile_logging
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1
+          - delay:
+              seconds: 5
+          - action: electricity_price_suite.abort_profile_logging
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              reason: manual_abort
+              program_key: auto_1
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "9_finish_wrong_program_rolls_back"
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.electricity_price_suite_logger_total_kwh
+            data:
+              value: 0
+          - delay:
+              seconds: 5
+          - action: electricity_price_suite.start_profile_logging
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1
+          - delay:
+              seconds: 5
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.electricity_price_suite_logger_total_kwh
+            data:
+              value: 0.111
+          - delay:
+              seconds: 5
+          - action: electricity_price_suite.finish_profile_logging
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: wrong_program
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "10_reset_profile_auto_1"
+        sequence:
+          - action: electricity_price_suite.reset_consumption_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "11_delete_profile_auto_1"
+        sequence:
+          - action: electricity_price_suite.delete_consumption_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              program_key: auto_1

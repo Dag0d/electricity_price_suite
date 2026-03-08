@@ -33,10 +33,11 @@ from .plan_manager import (
     build_no_candidate_result,
     build_plan_payload,
     build_reset_payload,
-    load_consumption_profile_logger,
+    load_profile_logger_profile,
     reoptimize_plan_payload,
 )
 from .providers import fetch_from_source, normalize_slots
+from .resolvers import resolve_logger_runtime
 from .store import TimelineStore
 from .timeline_stats import (
     build_timeline_stats,
@@ -394,9 +395,8 @@ class TimelineRuntime:
         energy_profile: list[float] | None,
         profile_slot_minutes: int | None,
         billing_slot_minutes: int | None,
-        consumption_profile_logger: bool,
-        consumption_profile_entity: str | None,
-        consumption_profile_desired_slot_minutes: int | None,
+        profile_logger_entity: str | None,
+        program_key: str | None,
         align_start_to_billing_slot: bool,
         max_extra_cost_percent: float,
         prefer_earliest: bool,
@@ -410,16 +410,36 @@ class TimelineRuntime:
         profile_source = "service_payload"
         profile_meta: dict[str, Any] | None = None
 
-        if consumption_profile_logger:
+        if profile_logger_entity:
+            logger_runtime, implicit_program_key = resolve_logger_runtime(
+                self.hass.data.get(DOMAIN, {}),
+                profile_logger_entity,
+            )
+            if logger_runtime is None:
+                result = self._build_no_candidate_result("profile_logger_not_found")
+                return await self._persist_plan_result(
+                    device_name=device_name,
+                    result=result,
+                    deadline_mode=deadline_mode,
+                    deadline_minutes=deadline_minutes,
+                    latest_start=latest_start,
+                    latest_finish=latest_finish,
+                    max_extra_cost_percent=max_extra_cost_percent,
+                    prefer_earliest=prefer_earliest,
+                    align_start_to_billing_slot=align_start_to_billing_slot,
+                    profile_source="profile_logger",
+                    profile_meta={"entity_id": profile_logger_entity},
+                )
             (
                 loaded_profile,
                 loaded_duration,
                 loaded_slot_minutes,
                 profile_meta,
                 load_reason,
-            ) = await self._load_consumption_profile_logger(
-                consumption_profile_entity=consumption_profile_entity,
-                desired_slot_minutes=consumption_profile_desired_slot_minutes,
+            ) = load_profile_logger_profile(
+                logger_runtime,
+                profile_logger_entity=profile_logger_entity,
+                program_key=program_key or implicit_program_key,
             )
             if load_reason is not None:
                 result = self._build_no_candidate_result(load_reason)
@@ -433,13 +453,13 @@ class TimelineRuntime:
                     max_extra_cost_percent=max_extra_cost_percent,
                     prefer_earliest=prefer_earliest,
                     align_start_to_billing_slot=align_start_to_billing_slot,
-                    profile_source="consumption_profile_logger",
+                    profile_source="profile_logger",
                     profile_meta=profile_meta,
                 )
             energy_profile = loaded_profile
             duration_minutes = loaded_duration
             profile_slot_minutes = loaded_slot_minutes
-            profile_source = "consumption_profile_logger"
+            profile_source = "profile_logger"
 
         slot_rows = self._slot_dicts_for_optimizer()
         bill_slot = int(billing_slot_minutes or self._detect_billing_slot_minutes(slot_rows))
@@ -589,11 +609,7 @@ class TimelineRuntime:
                 "reason": f"plan_status_{payload.get('status', 'unknown')}",
             }
 
-        result = reoptimize_plan_payload(
-            slots=self._slot_dicts_for_optimizer(),
-            payload=payload,
-            timezone_name=self.timezone,
-        )
+        result, profile_source, profile_meta = self._reoptimize_plan_result(payload)
         return await self._persist_plan_result(
             device_name=str(payload.get("device_name", device_slug)),
             result=result,
@@ -608,8 +624,8 @@ class TimelineRuntime:
             max_extra_cost_percent=float(payload.get("max_extra_cost_percent", 1.0)),
             prefer_earliest=bool(payload.get("prefer_earliest", True)),
             align_start_to_billing_slot=bool(payload.get("align_start_to_billing_slot", False)),
-            profile_source=str(payload.get("profile_source", "service_payload")),
-            profile_meta=payload.get("profile_meta"),
+            profile_source=profile_source,
+            profile_meta=profile_meta,
         )
 
     def _build_reset_payload(self, device_name: str) -> PlanPayload:
@@ -617,18 +633,6 @@ class TimelineRuntime:
 
     def _build_no_candidate_result(self, reason: str) -> PlanResult:
         return build_no_candidate_result(self.timezone, reason)
-
-    async def _load_consumption_profile_logger(
-        self,
-        *,
-        consumption_profile_entity: str | None,
-        desired_slot_minutes: int | None,
-    ) -> tuple[list[float] | None, float | None, int | None, dict[str, Any] | None, str | None]:
-        return await load_consumption_profile_logger(
-            self.hass,
-            consumption_profile_entity=consumption_profile_entity,
-            desired_slot_minutes=desired_slot_minutes,
-        )
 
     def _current_price_coverage_end(self) -> datetime | None:
         return current_price_coverage_end(
@@ -664,11 +668,7 @@ class TimelineRuntime:
                 continue
 
             try:
-                result = reoptimize_plan_payload(
-                    slots=self._slot_dicts_for_optimizer(),
-                    payload=payload,
-                    timezone_name=self.timezone,
-                )
+                result, profile_source, profile_meta = self._reoptimize_plan_result(payload)
             except Exception as err:  # pragma: no cover - defensive
                 _LOGGER.debug("plan re-optimize failed for %s/%s: %s", self.timeline_slug, device_slug, err, exc_info=True)
                 continue
@@ -687,8 +687,8 @@ class TimelineRuntime:
                 max_extra_cost_percent=float(payload.get("max_extra_cost_percent", 1.0)),
                 prefer_earliest=bool(payload.get("prefer_earliest", True)),
                 align_start_to_billing_slot=bool(payload.get("align_start_to_billing_slot", False)),
-                profile_source=str(payload.get("profile_source", "service_payload")),
-                profile_meta=payload.get("profile_meta"),
+                profile_source=profile_source,
+                profile_meta=profile_meta,
             )
             _LOGGER.info(
                 "re-optimized plan %s/%s because price coverage extended to %s",
@@ -705,6 +705,60 @@ class TimelineRuntime:
             }
             for item in self.store.get_slots()
         ]
+
+    def _reoptimize_plan_result(
+        self,
+        payload: PlanPayload,
+    ) -> tuple[PlanResult, str, dict[str, Any] | None]:
+        profile_source = str(payload.get("profile_source", "service_payload"))
+        profile_meta = payload.get("profile_meta")
+
+        if profile_source == "profile_logger" and isinstance(profile_meta, dict):
+            profile_logger_entity = profile_meta.get("entity_id")
+            program_key = profile_meta.get("program_key")
+            if isinstance(profile_logger_entity, str) and isinstance(program_key, str):
+                logger_runtime, implicit_program_key = resolve_logger_runtime(
+                    self.hass.data.get(DOMAIN, {}),
+                    profile_logger_entity,
+                )
+                if logger_runtime is not None:
+                    (
+                        energy_profile,
+                        duration_minutes,
+                        profile_slot_minutes,
+                        current_profile_meta,
+                        load_reason,
+                    ) = load_profile_logger_profile(
+                        logger_runtime,
+                        profile_logger_entity=profile_logger_entity,
+                        program_key=program_key or implicit_program_key,
+                    )
+                    if load_reason is None:
+                        return (
+                            reoptimize_plan_payload(
+                                slots=self._slot_dicts_for_optimizer(),
+                                payload=payload,
+                                timezone_name=self.timezone,
+                                duration_minutes=duration_minutes,
+                                energy_profile=energy_profile,
+                                profile_slot_minutes=profile_slot_minutes,
+                            ),
+                            "profile_logger",
+                            current_profile_meta,
+                        )
+                    return self._build_no_candidate_result(load_reason), "profile_logger", current_profile_meta
+                return self._build_no_candidate_result("profile_logger_not_found"), "profile_logger", profile_meta
+            return self._build_no_candidate_result("missing_profile_logger_metadata"), "profile_logger", profile_meta
+
+        return (
+            reoptimize_plan_payload(
+                slots=self._slot_dicts_for_optimizer(),
+                payload=payload,
+                timezone_name=self.timezone,
+            ),
+            profile_source,
+            profile_meta if isinstance(profile_meta, dict) else None,
+        )
 
     @property
     def timeline_entity_id(self) -> str:

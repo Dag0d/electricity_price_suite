@@ -4,6 +4,7 @@
 
 - Building and maintaining a price timeline (today/tomorrow) from multiple sources
 - Merging source data by strict priority (authoritative source wins)
+- Learning consumption profiles from real device runs
 - Optimizing device start times against stored timeline data
 - Exposing automation-friendly entities and services
 
@@ -11,9 +12,20 @@ The integration is designed for setups where price data may come from different 
 
 ## Core Concepts
 
-### 1) Timeline Instance
+### 1) Entry Types
 
-Each config entry creates one timeline instance (for example one meter/tariff/provider context).
+Each config entry is one of two types:
+
+- `timeline`
+- `profile_logger`
+
+Timeline entries manage prices and plans.
+
+Profile logger entries learn reusable device programs from one energy meter.
+
+### 2) Timeline Instance
+
+Each timeline entry creates one timeline instance (for example one meter/tariff/provider context).
 
 Per timeline, the integration exposes:
 
@@ -22,7 +34,18 @@ Per timeline, the integration exposes:
 - Optional: `sensor.<timeline_slug>_current_price`
 - Dynamic plan entities: `sensor.<timeline_slug>_plan_<device_slug>`
 
-### 2) Source Chain with Priority
+### 3) Profile Logger Instance
+
+Each profile logger entry exposes:
+
+- `sensor.<logger_slug>_profile_logger_meta`
+- `sensor.<logger_slug>_profile_<program_key>`
+
+The meta sensor represents logger state and active run details.
+
+Each program sensor represents one learned profile and exposes its average total energy and profile metadata.
+
+### 4) Source Chain with Priority
 
 Sources are ordered by priority:
 
@@ -33,13 +56,15 @@ Sources are ordered by priority:
   - Same priority replaces old value (refresh behavior)
   - Worse priority is ignored
 
-### 3) Explicit Refresh, Deterministic Behavior
+### 5) Explicit Refresh, Deterministic Behavior
 
 Timeline data updates on explicit calls (`refresh_timeline`, `inject_slots`) and optional scheduled checks implemented by the integration runtime. Source fallback behavior is transparent via response logs and sensor attributes.
 
-### 4) Optimizer Works on Internal Store
+### 6) Optimizer Works on Internal Store
 
 The optimizer never needs price slots in its payload. It reads already stored timeline data and computes the best candidate start.
+
+When a logger profile is used, the optimizer reads it directly from the internal logger runtime via `profile_logger_entity + program_key`. No external service hop is required.
 
 ## Features
 
@@ -49,8 +74,9 @@ The optimizer never needs price slots in its payload. It reads already stored ti
 - Current price sensor (optional)
 - Status sensor with fixed machine-readable states
 - Device plan entity lifecycle: one persistent plan entity per device per timeline
+- Consumption profile logger entries with per-program sensors
 - Fine-grained optimizer (profile slot can be smaller than billing slot)
-- Optional profile import from `consumption_profile_logger.get_profile`
+- Direct internal profile loading from suite logger entries
 - Separate plan management service for reset/delete lifecycle actions
 
 ## Internal Structure
@@ -59,6 +85,8 @@ The integration keeps the external feature set stable, but the runtime internals
 
 - `runtime.py`
   - timeline orchestration, service-facing runtime behavior, scheduling, and entity lifecycle
+- `logger_runtime.py`
+  - profile logger orchestration, sampling, profile persistence, and logger-specific services
 - `timeline_stats.py`
   - timeline state building, weighted metrics, current-price detection, and high-level status evaluation
 - `plan_manager.py`
@@ -78,7 +106,12 @@ This split was introduced to reduce duplication in the original monolithic runti
 
 ## Configuration Flow
 
-The config flow creates one timeline entry:
+The config flow starts with an entry-type selection:
+
+- `Price Timeline`
+- `Consumption Profile Logger`
+
+### Timeline flow
 
 1. Base settings:
    - Timeline name
@@ -92,7 +125,16 @@ The config flow creates one timeline entry:
    - `inject_only`
 3. Source-specific fields for the selected primary source
 
-Additional sources can be added later through service calls.
+Additional timeline sources can be added later through service calls.
+
+### Profile logger flow
+
+1. Logger name
+2. Total-increasing energy entity
+3. Slot minutes
+4. Maximum allowed power delta
+5. Auto-create programs on unknown runs
+6. Optional allowed/block lists for program keys
 
 ## Entities
 
@@ -127,12 +169,27 @@ Per-device planning entity:
 - State: planned start timestamp (or `unknown`)
 - Attributes: optimization window, duration, profile details, cost result, run metadata
 
+### `sensor.<logger_slug>_profile_logger_meta`
+
+Logger meta sensor with:
+
+- State: `idle | running | error`
+- Attributes: active run details, known profiles, last error, sampling metadata
+
+### `sensor.<logger_slug>_profile_<program_key>`
+
+Per-program learned profile sensor with:
+
+- State: average total energy in kWh
+- Attributes: `program_key`, `program_name`, `run_count`, `slot_minutes`, `slot_count`, `runtime_minutes`, `last_updated`
+
 ## Services
 
 All services are in domain `electricity_price_suite`.
 
 - `refresh_timeline`, `inject_slots`, `optimize_device`, `add_source`, `list_sources`, `delete_source` use a timeline target.
 - `manage_plan` and `reoptimize_plan` use one or more plan entity targets.
+- `start_profile_logging`, `finish_profile_logging`, `abort_profile_logging`, `get_consumption_profile`, `reset_consumption_profile`, `delete_consumption_profile` use a profile logger target.
 
 ---
 
@@ -230,15 +287,12 @@ Computes best start for one device using timeline data.
 - `billing_slot_minutes` (optional).
   - Expected: positive integer.
   - Effect: override billing price raster; by default detected from timeline slots.
-- `consumption_profile_logger` (optional, default `false`).
-  - Expected: boolean.
-  - Effect: when `true`, profile is pulled by action from `consumption_profile_logger.get_profile`.
-- `consumption_profile_entity` (required if `consumption_profile_logger=true`).
-  - Expected: entity id.
-  - Effect: target profile entity for external profile fetch.
-- `consumption_profile_desired_slot_minutes` (optional).
-  - Expected: positive integer.
-  - Effect: forwarded as `desired_slot_minutes` to `get_profile`.
+- `profile_logger_entity` (optional).
+  - Expected: entity id of a suite profile logger meta sensor.
+  - Effect: loads a profile directly from the internal logger runtime.
+- `program_key` (required when `profile_logger_entity` is used).
+  - Expected: stable program key, for example `auto_2`.
+  - Effect: chooses which learned logger profile is used for optimization.
 - `align_start_to_billing_slot` (optional, default `false`).
   - Expected: boolean.
   - Effect: candidate starts are forced to billing boundaries.
@@ -338,6 +392,70 @@ This is useful when:
 #### Response (typical)
 
 - `results`: list of per-target results:
+
+---
+
+### `start_profile_logging`
+
+Starts a new logger run for the selected profile logger.
+
+#### Inputs
+
+- `target` (required).
+  - Expected: one profile logger meta sensor or one program profile sensor.
+- `program_key` (optional when target is already a profile sensor).
+  - Expected: program key string.
+
+### `finish_profile_logging`
+
+Finishes the active logger run and persists the updated profile.
+
+#### Inputs
+
+- `target` (required).
+- `program_key` (optional when target is already a profile sensor).
+
+### `abort_profile_logging`
+
+Aborts the active logger run and restores the previous profile snapshot.
+
+#### Inputs
+
+- `target` (required).
+- `reason` (optional).
+  - Expected: one of `manual_abort`, `program_mismatch`, `restart_recovery`, `sampling_delay_exceeded`.
+- `program_key` (optional).
+
+### `get_consumption_profile`
+
+Returns either the list of known programs, or one profile payload.
+
+#### Inputs
+
+- `target` (required).
+- `program_key` (optional).
+  - If omitted on the meta sensor, the response returns the known program list.
+- `desired_slot_minutes` (optional).
+  - Resamples the profile when the requested slot length is an integer multiple or divisor of the stored slot length.
+- `debug` (optional).
+
+### `reset_consumption_profile`
+
+Clears one stored profile but keeps the entity.
+
+#### Inputs
+
+- `target` (required).
+- `program_key` (optional when target is already a profile sensor).
+
+### `delete_consumption_profile`
+
+Deletes one stored profile and removes its entity.
+
+#### Inputs
+
+- `target` (required).
+- `program_key` (optional when target is already a profile sensor).
   - `status`: `ok | no-candidate | not_found | not_reoptimized`
   - `plan_entity_id`
   - `best_start`

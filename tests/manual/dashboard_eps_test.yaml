@@ -1,191 +1,245 @@
 title: Electricity Price Suite Test
 views:
-  - title: EPS Test
-    path: eps-test
+  - title: EPS Manual Tests
+    path: eps-manual-tests
     icon: mdi:flash
-    cards:
-      - type: entities
-        title: Test Controls
-        entities:
-          - entity: input_select.electricity_price_suite_test_case
-          - entity: input_button.electricity_price_suite_run_test
-          - entity: timer.electricity_price_suite_edge_case_wait
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Timeline Controls
+          - type: entities
+            entities:
+              - entity: input_select.electricity_price_suite_test_case
+              - entity: input_button.electricity_price_suite_run_test
+              - entity: timer.electricity_price_suite_edge_case_wait
 
-      - type: entities
-        title: Timeline Core
-        entities:
-          - entity: sensor.test_timeline_pricing_meta
-          - entity: sensor.test_timeline_status
-          - entity: sensor.test_timeline_current_price
+      - type: grid
+        cards:
+          - type: heading
+            heading: Timeline Core
+          - type: entities
+            entities:
+              - entity: sensor.test_timeline_pricing_meta
+              - entity: sensor.test_timeline_status
+              - entity: sensor.test_timeline_current_price
 
-      - type: entities
-        title: Timeline Status Details
-        entities:
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: today_rows
-            name: Today rows
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: tomorrow_rows
-            name: Tomorrow rows
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: pending_primary
-            name: Pending primary
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: last_successful_source_id
-            name: Last successful source
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: last_primary_refresh_at
-            name: Last primary refresh
-          - type: attribute
-            entity: sensor.test_timeline_status
-            attribute: last_source_chain_fetch_at
-            name: Last source-chain fetch
+      - type: grid
+        cards:
+          - type: heading
+            heading: Timeline Plan
+          - type: entities
+            entities:
+              - entity: sensor.test_timeline_plan_test_device
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: status
+                name: Plan status
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: reason
+                name: Reason
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: best_end
+                name: Best end
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: best_cost
+                name: Best cost
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: window_start
+                name: Window start
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: window_end
+                name: Window end
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: requested_latest_start
+                name: Requested latest start
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: window_truncated_by_data
+                name: Window truncated by data
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: max_extra_cost_percent
+                name: Max extra cost percent
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: profile_source
+                name: Profile source
+              - type: attribute
+                entity: sensor.test_timeline_plan_test_device
+                attribute: computed_at
+                name: Computed at
 
-      - type: entities
-        title: Today Metrics
-        entities:
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: avg_today
-            name: Avg today
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: min_today
-            name: Min today
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: max_today
-            name: Max today
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: p20_today
-            name: P20 today
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: p70_today
-            name: P70 today
+      - type: grid
+        cards:
+          - type: heading
+            heading: Timeline Details
+          - type: entities
+            entities:
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: today_rows
+                name: Today rows
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: tomorrow_rows
+                name: Tomorrow rows
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: pending_primary
+                name: Pending primary
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: last_successful_source_id
+                name: Last successful source
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: last_primary_refresh_at
+                name: Last primary refresh
+              - type: attribute
+                entity: sensor.test_timeline_status
+                attribute: last_source_chain_fetch_at
+                name: Last source-chain fetch
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: avg_today
+                name: Avg today
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: avg_tomorrow
+                name: Avg tomorrow
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: p20_today
+                name: P20 today
+              - type: attribute
+                entity: sensor.test_timeline_pricing_meta
+                attribute: p70_tomorrow
+                name: P70 tomorrow
 
-      - type: entities
-        title: Tomorrow Metrics
-        entities:
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: avg_tomorrow
-            name: Avg tomorrow
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: min_tomorrow
-            name: Min tomorrow
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: max_tomorrow
-            name: Max tomorrow
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: p20_tomorrow
-            name: P20 tomorrow
-          - type: attribute
-            entity: sensor.test_timeline_pricing_meta
-            attribute: p70_tomorrow
-            name: P70 tomorrow
+      - type: grid
+        cards:
+          - type: heading
+            heading: Logger Controls
+          - type: entities
+            entities:
+              - entity: input_select.electricity_price_suite_logger_test_case
+              - entity: input_button.electricity_price_suite_run_logger_test
+              - entity: input_number.electricity_price_suite_logger_total_kwh
+              - entity: sensor.electricity_price_suite_logger_total_kwh
 
-      - type: entities
-        title: Plan Entity
-        entities:
-          - entity: sensor.test_timeline_plan_test_device
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: status
-            name: Plan status
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: reason
-            name: Reason
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: best_end
-            name: Best end
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: best_cost
-            name: Best cost
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: window_start
-            name: Window start
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: window_end
-            name: Window end
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: requested_latest_start
-            name: Requested latest start
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: window_truncated_by_data
-            name: Window truncated by data
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: max_extra_cost_percent
-            name: Max extra cost percent
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: profile_source
-            name: Profile source
-          - type: attribute
-            entity: sensor.test_timeline_plan_test_device
-            attribute: computed_at
-            name: Computed at
+      - type: grid
+        cards:
+          - type: heading
+            heading: Logger Core
+          - type: entities
+            entities:
+              - entity: sensor.test_logger_profile_logger_meta
+              - entity: sensor.test_logger_profile_auto_1
 
-      - type: markdown
-        title: Expected Results
-        content: |
-          **1_refresh_primary**
-          Uses the real configured source chain.
+      - type: grid
+        cards:
+          - type: heading
+            heading: Logger Meta Details
+          - type: entities
+            entities:
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: active_program
+                name: Active program
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: run_id
+                name: Run ID
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: slot_minutes
+                name: Slot minutes
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: started_at
+                name: Started at
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: last_sample_at
+                name: Last sample at
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: next_sample_at
+                name: Next sample at
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: samples_taken
+                name: Samples taken
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: error_reason
+                name: Error reason
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: known_programs
+                name: Known programs
+              - type: attribute
+                entity: sensor.test_logger_profile_logger_meta
+                attribute: max_delta_kwh
+                name: Max delta kWh
 
-          **2_refresh_inject_only_override**
-          Should not pull any new data. Good for confirming that `refresh_timeline` does not invent data for an `inject_only` override.
+      - type: grid
+        cards:
+          - type: heading
+            heading: Logger Profile Details
+          - type: entities
+            entities:
+              - type: attribute
+                entity: sensor.test_logger_profile_auto_1
+                attribute: program_key
+                name: Program key
+              - type: attribute
+                entity: sensor.test_logger_profile_auto_1
+                attribute: program_name
+                name: Program name
+              - type: attribute
+                entity: sensor.test_logger_profile_auto_1
+                attribute: run_count
+                name: Run count
+              - type: attribute
+                entity: sensor.test_logger_profile_auto_1
+                attribute: slot_minutes
+                name: Slot minutes
+              - type: attribute
+                entity: sensor.test_logger_profile_auto_1
+                attribute: slot_count
+                name: Slot count
+              - type: attribute
+                entity: sensor.test_logger_profile_auto_1
+                attribute: runtime_minutes
+                name: Runtime minutes
+              - type: attribute
+                entity: sensor.test_logger_profile_auto_1
+                attribute: last_updated
+                name: Last updated
 
-          **3_inject_fallback_today_tomorrow**
-          Injects fallback rows for today and tomorrow. `pending_primary` should normally become `true`.
+      - type: grid
+        cards:
+          - type: heading
+            heading: Notes
+          - type: markdown
+            content: |
+              **Timeline harness**
+              - Uses `input_select.electricity_price_suite_test_case` and `input_button.electricity_price_suite_run_test`
+              - Covers refresh, inject, optimizer, reset, delete, and boundary regression behavior
 
-          **4_inject_primary_tomorrow_override**
-          Replaces tomorrow fallback rows with priority-0 rows while keeping today untouched.
-
-          **5_optimize_basic**
-          Creates `sensor.test_timeline_plan_test_device`.
-
-          **6_optimize_service_validation_missing_runtime**
-          Calls the optimize service without duration and without profile data.
-          Expected result: the service call is rejected immediately by validation before the optimizer runs.
-
-          **7_optimize_invalid_latest_start**
-          Runs the optimizer with an invalid absolute latest start string.
-          Expected result: `status=no-candidate`, `reason=invalid_latest_start`.
-
-          **8_optimize_invalid_deadline_minutes**
-          Runs the optimizer with a negative relative deadline.
-          Expected result: `status=no-candidate`, `reason=invalid_deadline_minutes`.
-
-          **9_optimize_all_candidates_in_past**
-          Uses a past-biased start anchor plus an absolute latest start at the current minute so every candidate lies at or before `now`.
-          Expected result: `status=no-candidate`, `reason=all_candidates_in_past`.
-
-          **10_plan_reset**
-          Keeps the plan entity but clears the planned start and sets `status=reset`.
-
-          **11_plan_delete**
-          Removes the persisted plan entity.
-
-          **12_refresh_primary_overwrite**
-          Clears stored rows for today and tomorrow, then fetches them again from the real source chain.
-
-          **13_optimizer_boundary_edge_case**
-          Clears today/tomorrow, injects quarter-hour prices, waits until exactly `HH:00:15`, `HH:15:15`, `HH:30:15`, or `HH:45:15`, and then runs the optimizer.
-          Expected result: the plan must start on the *next* quarter boundary, never on the boundary that is already 15 seconds in the past.
+              **Logger harness**
+              - Uses `input_select.electricity_price_suite_logger_test_case` and `input_button.electricity_price_suite_run_logger_test`
+              - Uses `input_number.electricity_price_suite_logger_total_kwh` plus the template sensor `sensor.electricity_price_suite_logger_total_kwh`
+              - The logger automation waits 5 seconds after helper writes before any read-dependent action
+              - `get_profile` test results are written into persistent notifications
+              - Runtime errors such as missing program key or wrong finish program should also create persistent notifications
