@@ -248,21 +248,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         debug = bool(call.data.get("debug", False))
         if program_key is None:
             return {"ok": True, "programs": runtime.get_program_list()}
-        payload = runtime.get_profile_export(program_key, desired_slot_minutes=desired_slot_minutes, debug=debug)
-        if payload is not None:
-            return {"ok": True, "profile": payload}
-        runtime_data = runtime.get_profile_runtime_data(program_key)
-        if runtime_data is None:
-            return {"ok": False, "code": "profile_not_found", "message": "Profile not found"}
-        if desired_slot_minutes is not None:
-            return {
-                "ok": False,
-                "code": "invalid_desired_slot_minutes",
-                "message": "requested slot length is not resampleable (must be an integer multiple or divisor of the stored slot length)",
-                "requested_slot_minutes": desired_slot_minutes,
-                "stored_slot_minutes": runtime_data["internal_slot_minutes"],
-            }
-        return {"ok": False, "code": "profile_not_found", "message": "Profile not found"}
+        return runtime.get_profile_service_response(
+            program_key,
+            desired_slot_minutes=desired_slot_minutes,
+            debug=debug,
+        )
 
     async def handle_reset_profile(call: ServiceCall) -> dict[str, Any]:
         runtime, implicit_program_key = await _resolve_logger(call)

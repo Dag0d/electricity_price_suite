@@ -55,6 +55,8 @@ from .const import (
     STATE_RUNNING,
     TOLERANCE_RATIO,
 )
+from .logger_utils import display_program_name, normalize_program_key
+from .profile_utils import resample_profile_slots, service_profile_result_from_export
 
 
 @dataclass(slots=True)
@@ -205,7 +207,7 @@ class ProfileLoggerRuntime:
         internal_slot_minutes = int(profile.get("slot_minutes", self.slot_minutes))
         slots = profile.get("slots_kwh", [])
         target_slot_minutes = desired_slot_minutes or internal_slot_minutes
-        resampled_slots = self._resample_slots(slots, internal_slot_minutes, target_slot_minutes)
+        resampled_slots = resample_profile_slots(slots, internal_slot_minutes, target_slot_minutes)
         if resampled_slots is None:
             return None
 
@@ -254,6 +256,34 @@ class ProfileLoggerRuntime:
             }
         return payload
 
+    def get_profile_service_response(
+        self,
+        program_key: str,
+        *,
+        desired_slot_minutes: int | None = None,
+        debug: bool = False,
+    ) -> dict[str, Any]:
+        """Return the normalized service response for one program profile."""
+
+        payload = self.get_profile_export(
+            program_key,
+            desired_slot_minutes=desired_slot_minutes,
+            debug=debug,
+        )
+        result = service_profile_result_from_export(
+            payload,
+            runtime_data=self.get_profile_runtime_data(program_key),
+            desired_slot_minutes=desired_slot_minutes,
+        )
+        if result.ok:
+            return {"ok": True, **(result.payload or {})}
+        return {
+            "ok": False,
+            "code": result.code,
+            "message": result.message,
+            **(result.payload or {}),
+        }
+
     def get_program_list(self) -> list[dict[str, Any]]:
         return [
             {
@@ -274,9 +304,27 @@ class ProfileLoggerRuntime:
             "internal_slot_count": len(profile.get("slots_kwh", [])),
         }
 
+    def get_profile_sensor_payload(self, program_key: str) -> dict[str, Any] | None:
+        """Return one UI-friendly profile payload for sensor state and attributes."""
+
+        summary = self.get_profile_summary(program_key)
+        runtime_data = self.get_profile_runtime_data(program_key)
+        if summary is None:
+            return None
+        return {
+            "program_key": summary["program_key"],
+            "program_name": summary["program_name"],
+            "avg_total_kwh": summary["avg_total_kwh"],
+            "run_count": (runtime_data or {}).get("run_count", 0),
+            "slot_minutes": summary["slot_minutes"],
+            "slot_count": summary["slot_count"],
+            "runtime_minutes": summary["runtime_minutes"],
+            "last_updated": summary["last_updated"],
+        }
+
     async def async_start(self, program_key: str | None) -> LoggerServiceResult:
         async with self._lock:
-            normalized_program = self._normalize_program(program_key)
+            normalized_program = normalize_program_key(program_key)
             if not normalized_program:
                 return await self._async_fail_start(ERROR_PROGRAM_MISSING, "Program key is required")
             if self._data.get("active_run"):
@@ -331,7 +379,7 @@ class ProfileLoggerRuntime:
             active = self._data.get("active_run")
             if not active:
                 return self._error(ERROR_NOT_RUNNING, "No active run")
-            normalized_program = self._normalize_program(program_key)
+            normalized_program = normalize_program_key(program_key)
             if not normalized_program:
                 await self._async_rollback_locked(ERROR_PROGRAM_MISSING)
                 return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
@@ -374,7 +422,7 @@ class ProfileLoggerRuntime:
             if not active:
                 return self._error(ERROR_NOT_RUNNING, "No active run")
             if program_key is not None:
-                normalized_program = self._normalize_program(program_key)
+                normalized_program = normalize_program_key(program_key)
                 if normalized_program and normalized_program != active["program_key"]:
                     reason = "program_mismatch"
             normalized_reason = reason if reason in ALLOWED_ABORT_REASONS else ERROR_ABORTED
@@ -383,7 +431,7 @@ class ProfileLoggerRuntime:
 
     async def async_reset_profile(self, program_key: str | None) -> LoggerServiceResult:
         async with self._lock:
-            normalized_program = self._normalize_program(program_key)
+            normalized_program = normalize_program_key(program_key)
             if not normalized_program:
                 return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
             active = self._data.get("active_run")
@@ -403,7 +451,7 @@ class ProfileLoggerRuntime:
 
     async def async_delete_profile(self, program_key: str | None) -> LoggerServiceResult:
         async with self._lock:
-            normalized_program = self._normalize_program(program_key)
+            normalized_program = normalize_program_key(program_key)
             if not normalized_program:
                 return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
             active = self._data.get("active_run")
@@ -479,7 +527,7 @@ class ProfileLoggerRuntime:
     def _new_profile(self, program_key: str) -> dict[str, Any]:
         return {
             "program_key": program_key,
-            "program_name": self._display_program_name(program_key),
+            "program_name": display_program_name(program_key),
             "run_count": 0,
             "slot_minutes": self.slot_minutes,
             "slots_kwh": [],
@@ -487,33 +535,9 @@ class ProfileLoggerRuntime:
             "last_updated": None,
         }
 
-    def _normalize_program(self, value: str | None) -> str | None:
-        if value is None:
-            return None
-        text = str(value).strip().lower()
-        if not text:
-            return None
-        normalized = []
-        for char in text:
-            if char in {"ä", "ö", "ü"}:
-                normalized.append({"ä": "a", "ö": "o", "ü": "u"}[char])
-            elif char == "ß":
-                normalized.append("ss")
-            elif char.isalnum():
-                normalized.append(char)
-            else:
-                normalized.append("_")
-        program_key = "".join(normalized)
-        while "__" in program_key:
-            program_key = program_key.replace("__", "_")
-        return program_key.strip("_") or None
-
-    def _display_program_name(self, program_key: str) -> str:
-        return " ".join(part.capitalize() for part in program_key.split("_") if part)
-
     def _is_program_allowed(self, program_key: str) -> bool:
-        blocked = {self._normalize_program(item) for item in self.config.get(CONF_BLOCKED_PROGRAMS, [])}
-        allowed = {self._normalize_program(item) for item in self.config.get(CONF_ALLOWED_PROGRAMS, [])}
+        blocked = {normalize_program_key(item) for item in self.config.get(CONF_BLOCKED_PROGRAMS, [])}
+        allowed = {normalize_program_key(item) for item in self.config.get(CONF_ALLOWED_PROGRAMS, [])}
         blocked.discard(None)
         allowed.discard(None)
         if program_key in blocked:
@@ -579,29 +603,6 @@ class ProfileLoggerRuntime:
         while values and missing_runs and int(missing_runs[-1]) >= SLOT_UNUSED_TRIM_RUNS:
             values.pop()
             missing_runs.pop()
-
-    def _resample_slots(self, slots: list[float], from_slot_minutes: int, to_slot_minutes: int) -> list[float] | None:
-        if to_slot_minutes <= 0 or from_slot_minutes <= 0:
-            return None
-        if to_slot_minutes == from_slot_minutes:
-            return [float(value) for value in slots]
-        if to_slot_minutes > from_slot_minutes:
-            if to_slot_minutes % from_slot_minutes != 0:
-                return None
-            factor = to_slot_minutes // from_slot_minutes
-            result: list[float] = []
-            for start in range(0, len(slots), factor):
-                group = slots[start : start + factor]
-                result.append(sum(float(value) for value in group))
-            return result
-        if from_slot_minutes % to_slot_minutes != 0:
-            return None
-        factor = from_slot_minutes // to_slot_minutes
-        result = []
-        for value in slots:
-            piece = float(value) / float(factor)
-            result.extend(piece for _ in range(factor))
-        return result
 
     def _allowed_delay_seconds(self) -> float:
         slot_seconds = float(self.slot_minutes * 60)

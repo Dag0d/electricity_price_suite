@@ -7,10 +7,10 @@ from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
-from homeassistant.util import dt as dt_util
 
 from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
-from .models import PlanPayload, SlotRecord, SlotRow, SourceConfig
+from .models import PlanPayload, SlotRecord, SlotRow, SourceConfig, utc_now_iso
+from .time_utils import parse_iso_aware
 
 
 class TimelineStore:
@@ -43,21 +43,17 @@ class TimelineStore:
         self._data.setdefault("source_health", {})[source_id] = {
             "healthy": healthy,
             "reason": reason,
-            "updated_at": dt_util.utcnow().isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "updated_at": utc_now_iso(),
         }
 
     def set_last_successful_source(self, source_id: str) -> None:
         self._data["last_successful_source_id"] = source_id
 
     def set_last_primary_refresh(self) -> None:
-        self._data["last_primary_refresh_at"] = dt_util.utcnow().isoformat(timespec="seconds").replace(
-            "+00:00", "Z"
-        )
+        self._data["last_primary_refresh_at"] = utc_now_iso()
 
     def set_last_source_chain_fetch(self) -> None:
-        self._data["last_source_chain_fetch_at"] = dt_util.utcnow().isoformat(timespec="seconds").replace(
-            "+00:00", "Z"
-        )
+        self._data["last_source_chain_fetch_at"] = utc_now_iso()
 
     @property
     def last_primary_refresh_at(self) -> str | None:
@@ -85,9 +81,8 @@ class TimelineStore:
         by_start: dict[str, dict] = self._data.setdefault("slots", {})
         old_keys: list[str] = []
         for key in by_start:
-            try:
-                dt = datetime.fromisoformat(key)
-            except ValueError:
+            dt = parse_iso_aware(key)
+            if dt is None:
                 old_keys.append(key)
                 continue
             if dt.astimezone(tz).date() < cutoff_date:
@@ -108,9 +103,8 @@ class TimelineStore:
         by_start: dict[str, dict] = self._data.setdefault("slots", {})
         remove_keys: list[str] = []
         for key in by_start:
-            try:
-                dt = datetime.fromisoformat(key)
-            except ValueError:
+            dt = parse_iso_aware(key)
+            if dt is None:
                 continue
             if dt.astimezone(tz).date() in dates:
                 remove_keys.append(key)

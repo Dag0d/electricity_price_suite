@@ -7,6 +7,8 @@ from typing import Any, TypedDict
 
 from homeassistant.util import dt as dt_util
 
+from .time_utils import format_iso
+
 
 @dataclass(slots=True)
 class SlotRecord:
@@ -135,4 +137,4 @@ class SourceAttempt:
 def utc_now_iso() -> str:
     """Return UTC timestamp in ISO format."""
 
-    return dt_util.utcnow().isoformat(timespec="seconds").replace("+00:00", "Z")
+    return format_iso(dt_util.utcnow(), timespec="seconds").replace("+00:00", "Z")

@@ -8,7 +8,6 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import UnitOfEnergy
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.util import slugify
@@ -40,6 +39,7 @@ from .const import (
     ENTRY_TYPE_PROFILE_LOGGER,
     ENTRY_TYPE_TIMELINE,
 )
+from .validation import parse_program_list, validate_energy_entity
 
 
 def _int_selector(*, min_value: int = 0, max_value: int | None = None) -> selector.NumberSelector:
@@ -50,32 +50,8 @@ def _float_selector(*, min_value: float = 0, max_value: float | None = None, ste
     return selector.NumberSelector(selector.NumberSelectorConfig(min=min_value, max=max_value, mode=selector.NumberSelectorMode.BOX, step=step))
 
 
-def _parse_program_list(raw: Any) -> list[str]:
-    if raw in (None, ""):
-        return []
-    if isinstance(raw, list):
-        return [str(item).strip() for item in raw if str(item).strip()]
-    return [item.strip() for item in str(raw).split(",") if item.strip()]
-
-
 def _program_list_selector() -> selector.SelectSelector:
     return selector.SelectSelector(selector.SelectSelectorConfig(options=[], multiple=True, custom_value=True))
-
-
-def _validate_energy_entity(hass, entity_id: str) -> str | None:
-    state = hass.states.get(entity_id)
-    if state is None:
-        return "invalid_energy_entity"
-    try:
-        float(state.state)
-    except (TypeError, ValueError):
-        return "non_numeric_energy_state"
-    unit = state.attributes.get("unit_of_measurement")
-    if unit not in {UnitOfEnergy.KILO_WATT_HOUR, UnitOfEnergy.WATT_HOUR}:
-        return "unsupported_energy_unit"
-    if state.attributes.get("state_class") != "total_increasing":
-        return "invalid_energy_state_class"
-    return None
 
 
 class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -140,7 +116,7 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_SLOT_MINUTES] = "invalid"
             elif max_power_kw <= 0:
                 errors[CONF_MAX_POWER_KW] = "invalid"
-            elif (energy_error := _validate_energy_entity(self.hass, energy_entity)) is not None:
+            elif (energy_error := validate_energy_entity(self.hass, energy_entity)) is not None:
                 errors[CONF_ENERGY_ENTITY] = energy_error
             else:
                 slug = slugify(title)
@@ -153,8 +129,8 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SLOT_MINUTES: slot_minutes,
                     CONF_MAX_POWER_KW: max_power_kw,
                     CONF_AUTO_CREATE_PROGRAMS: bool(user_input[CONF_AUTO_CREATE_PROGRAMS]),
-                    CONF_ALLOWED_PROGRAMS: _parse_program_list(user_input.get(CONF_ALLOWED_PROGRAMS, [])),
-                    CONF_BLOCKED_PROGRAMS: _parse_program_list(user_input.get(CONF_BLOCKED_PROGRAMS, [])),
+                    CONF_ALLOWED_PROGRAMS: parse_program_list(user_input.get(CONF_ALLOWED_PROGRAMS, [])),
+                    CONF_BLOCKED_PROGRAMS: parse_program_list(user_input.get(CONF_BLOCKED_PROGRAMS, [])),
                     CONF_SLUG: slug,
                 }
                 return self.async_create_entry(title=title, data=data)
@@ -305,7 +281,7 @@ class ElectricityPriceSuiteOptionsFlow(config_entries.OptionsFlow):
                 errors[CONF_SLOT_MINUTES] = "invalid"
             elif max_power_kw <= 0:
                 errors[CONF_MAX_POWER_KW] = "invalid"
-            elif (energy_error := _validate_energy_entity(self.hass, user_input[CONF_ENERGY_ENTITY].strip())) is not None:
+            elif (energy_error := validate_energy_entity(self.hass, user_input[CONF_ENERGY_ENTITY].strip())) is not None:
                 errors[CONF_ENERGY_ENTITY] = energy_error
             else:
                 return self.async_create_entry(title="", data={
@@ -313,8 +289,8 @@ class ElectricityPriceSuiteOptionsFlow(config_entries.OptionsFlow):
                     CONF_SLOT_MINUTES: slot_minutes,
                     CONF_MAX_POWER_KW: max_power_kw,
                     CONF_AUTO_CREATE_PROGRAMS: bool(user_input[CONF_AUTO_CREATE_PROGRAMS]),
-                    CONF_ALLOWED_PROGRAMS: _parse_program_list(user_input.get(CONF_ALLOWED_PROGRAMS, [])),
-                    CONF_BLOCKED_PROGRAMS: _parse_program_list(user_input.get(CONF_BLOCKED_PROGRAMS, [])),
+                    CONF_ALLOWED_PROGRAMS: parse_program_list(user_input.get(CONF_ALLOWED_PROGRAMS, [])),
+                    CONF_BLOCKED_PROGRAMS: parse_program_list(user_input.get(CONF_BLOCKED_PROGRAMS, [])),
                 })
         schema = vol.Schema({
             vol.Required(CONF_ENERGY_ENTITY, default=current[CONF_ENERGY_ENTITY]): selector.EntitySelector(selector.EntitySelectorConfig()),

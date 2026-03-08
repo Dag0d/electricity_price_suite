@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .models import SlotRecord, SourceAttempt, utc_now_iso
+from .time_utils import format_iso, parse_iso_aware
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,16 +37,10 @@ def _extract_path(data: Any, path: str | None) -> Any:
 
 
 def _parse_slot_time(raw: Any) -> str | None:
-    if raw is None:
+    dt = parse_iso_aware(raw)
+    if dt is None:
         return None
-    try:
-        text = str(raw).replace("Z", "+00:00")
-        dt = datetime.fromisoformat(text)
-        if dt.tzinfo is None:
-            return None
-        return dt.isoformat()
-    except (TypeError, ValueError):
-        return None
+    return format_iso(dt)
 
 
 def normalize_slots(raw_slots: Any, source: dict) -> list[SlotRecord]:

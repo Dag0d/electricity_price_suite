@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
@@ -16,6 +16,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import DOMAIN, ENTRY_TYPE_PROFILE_LOGGER, ENTRY_TYPE_TIMELINE
 from .logger_runtime import ProfileLoggerRuntime
 from .runtime import TimelineRuntime
+from .time_utils import parse_iso_aware
 
 _CURRENCY_ICON_CODES = {
     "aud", "brl", "cad", "chf", "cny", "czk", "dkk", "eur", "gbp", "hkd", "inr", "jpy", "nok", "nzd", "pln", "rub", "sek", "sgd", "try", "usd",
@@ -143,10 +144,7 @@ class PlanSensor(BaseSuiteEntity, RestoreEntity):
         raw = self._payload.get("best_start")
         if not raw:
             return None
-        try:
-            return datetime.fromisoformat(raw)
-        except ValueError:
-            return None
+        return parse_iso_aware(raw)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -263,7 +261,7 @@ class LoggerMetaSensor(LoggerBaseSensor):
 
 
 class LoggerProfileSensor(LoggerBaseSensor):
-    _attr_native_unit_of_measurement = "kWh"
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_suggested_display_precision = 5
     _attr_icon = "mdi:chart-bar-stacked"
     _attr_should_poll = False
@@ -272,29 +270,20 @@ class LoggerProfileSensor(LoggerBaseSensor):
         super().__init__(runtime)
         self.program_key = program_key
         self._attr_unique_id = f"{runtime.entry.entry_id}_{program_key}_profile"
-        summary = runtime.get_profile_summary(program_key) or {"program_name": program_key}
+        summary = runtime.get_profile_sensor_payload(program_key) or {"program_name": program_key}
         self._attr_name = summary["program_name"]
         self.entity_id = runtime.profile_entity_id(program_key)
 
     @property
     def native_value(self) -> float | None:
-        summary = self.runtime.get_profile_summary(self.program_key)
+        summary = self.runtime.get_profile_sensor_payload(self.program_key)
         if summary is None:
             return None
         return summary["avg_total_kwh"]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        summary = self.runtime.get_profile_summary(self.program_key)
-        runtime_data = self.runtime.get_profile_runtime_data(self.program_key)
+        summary = self.runtime.get_profile_sensor_payload(self.program_key)
         if summary is None:
             return {}
-        return {
-            "program_key": summary["program_key"],
-            "program_name": summary["program_name"],
-            "run_count": (runtime_data or {}).get("run_count", 0),
-            "slot_minutes": summary["slot_minutes"],
-            "slot_count": summary["slot_count"],
-            "runtime_minutes": summary["runtime_minutes"],
-            "last_updated": summary["last_updated"],
-        }
+        return summary

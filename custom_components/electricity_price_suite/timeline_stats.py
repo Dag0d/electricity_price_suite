@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from .models import SlotRecord, SlotRow, TimelineStats
+from .time_utils import format_iso, parse_iso_in_tz
 
 if TYPE_CHECKING:
     from .store import TimelineStore
@@ -15,13 +16,7 @@ if TYPE_CHECKING:
 def parse_iso_local(value: str, tz: ZoneInfo) -> datetime | None:
     """Parse an ISO string and normalize it into the given timezone."""
 
-    try:
-        dt = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        return None
-    return dt.astimezone(tz)
+    return parse_iso_in_tz(value, tz)
 
 
 def detect_billing_slot_minutes(rows: list[SlotRow], timezone_name: str, fallback: int) -> int:
@@ -253,7 +248,7 @@ def build_timeline_stats(
         "last_successful_source_id": store.last_successful_source_id,
         "source_health": store.source_health,
         "timeline_status": timeline_state,
-        "updated_at": now.isoformat(timespec="seconds"),
+        "updated_at": format_iso(now, timespec="seconds"),
     }
 
     state = round_value(avg_today, round_decimals)

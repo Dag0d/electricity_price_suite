@@ -78,6 +78,7 @@ When a logger profile is used, the optimizer reads it directly from the internal
 - Fine-grained optimizer (profile slot can be smaller than billing slot)
 - Direct internal profile loading from suite logger entries
 - Separate plan management service for reset/delete lifecycle actions
+- Shared suite helpers for datetime parsing/formatting, profile resampling, logger program-key normalization, and input validation
 
 ## Internal Structure
 
@@ -93,6 +94,14 @@ The integration keeps the external feature set stable, but the runtime internals
   - plan payload creation, reset handling, profile loading, and plan re-optimization helpers
 - `resolvers.py`
   - target-to-runtime and target-to-plan resolution helpers
+- `time_utils.py`
+  - shared timezone-aware ISO parsing and formatting helpers
+- `profile_utils.py`
+  - shared profile export normalization and slot resampling helpers
+- `logger_utils.py`
+  - shared `program_key` normalization and display-name helpers
+- `validation.py`
+  - shared validation helpers for logger config input
 
 This split was introduced to reduce duplication in the original monolithic runtime and make future changes easier to validate.
 

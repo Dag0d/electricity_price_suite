@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.2.0 - 2026-03-08
+
+### Added
+- Merged the former standalone consumption profile logger into `electricity_price_suite` as a first-class `profile_logger` entry type.
+- Added explicit logger services in the suite domain: `start_profile_logging`, `finish_profile_logging`, `abort_profile_logging`, `get_consumption_profile`, `reset_consumption_profile`, and `delete_consumption_profile`.
+- Added shared helper modules for suite-wide datetime handling, profile loading/resampling, logger key normalization, and validation.
+
+### Changed
+- The suite now supports two clear config entry types: `timeline` and `profile_logger`.
+- `optimize_device` now reads logger profiles directly from internal suite logger runtimes via `profile_logger_entity + program_key` instead of using an external service hop.
+- Refactored repeated logger/timeline internals onto shared helper paths so profile export, resampling, datetime formatting, ISO parsing, and logger validation are handled consistently across the suite.
+- Standardized logger profile sensor payload building through the runtime instead of rebuilding metadata separately in the sensor layer.
+
+### Fixed
+- Removed duplicate profile-response logic from the service layer so `get_consumption_profile` and internal optimizer profile loading now share the same normalized handling for profile existence and invalid resampling requests.
+- Reduced repeated UTC/ISO timestamp formatting and parsing paths in storage and runtime code to lower the chance of diverging behavior between logger and timeline subsystems.
+
 ## 1.1.1 - 2026-03-07
 
 ### Added

@@ -51,6 +51,7 @@ from .timeline_stats import (
     parse_iso_local,
     pending_primary,
 )
+from .time_utils import format_iso
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -694,7 +695,7 @@ class TimelineRuntime:
                 "re-optimized plan %s/%s because price coverage extended to %s",
                 self.timeline_slug,
                 device_slug,
-                coverage_end.isoformat(timespec="minutes"),
+                format_iso(coverage_end, timespec="minutes"),
             )
 
     def _slot_dicts_for_optimizer(self) -> list[dict[str, float | str]]:

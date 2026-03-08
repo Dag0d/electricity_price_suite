@@ -7,15 +7,17 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .const import DEFAULT_BILLING_SLOT_MINUTES
+from .logger_runtime import ProfileLoggerRuntime
 from .models import PlanPayload, PlanResult
 from .optimizer import optimize_runtime
-from .logger_runtime import ProfileLoggerRuntime
+from .profile_utils import loaded_profile_from_export
+from .time_utils import format_iso
 
 
 def build_no_candidate_result(timezone_name: str, reason: str) -> PlanResult:
     """Create a minimal no-candidate result for failed upstream profile loading."""
 
-    now = datetime.now(ZoneInfo(timezone_name)).isoformat(timespec="minutes")
+    now = format_iso(datetime.now(ZoneInfo(timezone_name)), timespec="minutes")
     return PlanResult(
         status="no-candidate",
         best_start=None,
@@ -61,7 +63,7 @@ def build_reset_payload(device_name: str, timeline_entity_id: str, timezone_name
         "requested_latest_start": None,
         "window_truncated_by_data": False,
         "price_coverage_end_at_compute": None,
-        "computed_at": datetime.now(ZoneInfo(timezone_name)).isoformat(timespec="seconds"),
+        "computed_at": format_iso(datetime.now(ZoneInfo(timezone_name)), timespec="seconds"),
         "timeline_entity": timeline_entity_id,
     }
 
@@ -110,7 +112,7 @@ def build_plan_payload(
         "requested_latest_start": result.requested_latest_start,
         "window_truncated_by_data": result.window_truncated_by_data,
         "price_coverage_end_at_compute": result.price_coverage_end,
-        "computed_at": datetime.now(ZoneInfo(timezone_name)).isoformat(timespec="seconds"),
+        "computed_at": format_iso(datetime.now(ZoneInfo(timezone_name)), timespec="seconds"),
         "timeline_entity": timeline_entity_id,
     }
 
@@ -132,37 +134,24 @@ def load_profile_logger_profile(
         if runtime_data is None:
             return None, None, None, None, "profile_not_found"
         return None, None, None, None, "profile_export_unavailable"
-
-    slots_kwh = payload.get("slots_kwh")
-    if not isinstance(slots_kwh, list) or not slots_kwh:
-        return None, None, None, None, "profile_missing_slots"
-    try:
-        energy_profile = [float(value) for value in slots_kwh]
-    except (TypeError, ValueError):
+    loaded = loaded_profile_from_export(payload, entity_id=profile_logger_entity)
+    if loaded is None:
+        if not isinstance(payload.get("slots_kwh"), list) or not payload.get("slots_kwh"):
+            return None, None, None, None, "profile_missing_slots"
+        try:
+            slot_minutes = int(payload.get("slot_minutes"))
+        except (TypeError, ValueError):
+            slot_minutes = None
+        if slot_minutes is None or slot_minutes <= 0:
+            return None, None, None, None, "profile_invalid_slot_minutes"
         return None, None, None, None, "profile_invalid_slots"
-
-    try:
-        slot_minutes = int(payload.get("slot_minutes"))
-    except (TypeError, ValueError):
-        return None, None, None, None, "profile_invalid_slot_minutes"
-    if slot_minutes <= 0:
-        return None, None, None, None, "profile_invalid_slot_minutes"
-
-    try:
-        runtime_minutes = float(payload.get("runtime_minutes"))
-    except (TypeError, ValueError):
-        runtime_minutes = float(len(energy_profile) * slot_minutes)
-
-    profile_meta = {
-        "entity_id": profile_logger_entity,
-        "logger_id": payload.get("logger_id"),
-        "logger_name": payload.get("logger_name"),
-        "program_key": payload.get("program_key"),
-        "program_name": payload.get("program_name"),
-        "avg_total_kwh": payload.get("avg_total_kwh"),
-        "last_updated": payload.get("last_updated"),
-    }
-    return energy_profile, runtime_minutes, slot_minutes, profile_meta, None
+    return (
+        loaded.energy_profile,
+        loaded.runtime_minutes,
+        loaded.slot_minutes,
+        loaded.profile_meta,
+        None,
+    )
 
 
 def reoptimize_plan_payload(

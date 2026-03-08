@@ -7,6 +7,7 @@ import math
 from zoneinfo import ZoneInfo
 
 from .models import PlanResult, SlotRow
+from .time_utils import format_iso, parse_iso_in_tz
 
 ROUND_FLOOR = "floor"
 ROUND_CEIL = "ceil"
@@ -15,13 +16,7 @@ REMAINING_COVERAGE_EPSILON_MINUTES = 0.001
 
 
 def _parse_iso(value: str, tz: ZoneInfo) -> datetime | None:
-    try:
-        dt = datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=tz)
-    return dt.astimezone(tz)
+    return parse_iso_in_tz(value, tz)
 
 
 def _round_to_grid(dt: datetime, grid_minutes: int, mode: str) -> datetime:
@@ -233,8 +228,8 @@ def optimize_runtime(
             reason="invalid_max_extra_cost_percent",
             candidates=0,
             profile_used=[],
-            window_start=now.isoformat(timespec="minutes"),
-            window_end=now.isoformat(timespec="minutes"),
+            window_start=format_iso(now, timespec="minutes"),
+            window_end=format_iso(now, timespec="minutes"),
             duration_minutes=duration_minutes,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=profile_slot_minutes or billing_slot_minutes,
@@ -255,8 +250,8 @@ def optimize_runtime(
             reason="no_valid_slots_after_parse",
             candidates=0,
             profile_used=[],
-            window_start=now.isoformat(timespec="minutes"),
-            window_end=now.isoformat(timespec="minutes"),
+            window_start=format_iso(now, timespec="minutes"),
+            window_end=format_iso(now, timespec="minutes"),
             duration_minutes=duration_minutes,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=prof_slot,
@@ -272,8 +267,8 @@ def optimize_runtime(
             reason=reason,
             candidates=0,
             profile_used=[],
-            window_start=now.isoformat(timespec="minutes"),
-            window_end=now.isoformat(timespec="minutes"),
+            window_start=format_iso(now, timespec="minutes"),
+            window_end=format_iso(now, timespec="minutes"),
             duration_minutes=duration_minutes,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=prof_slot,
@@ -317,8 +312,8 @@ def optimize_runtime(
             reason=latest_start_reason,
             candidates=0,
             profile_used=profile,
-            window_start=earliest_start.isoformat(timespec="minutes"),
-            window_end=last_price_end.isoformat(timespec="minutes"),
+            window_start=format_iso(earliest_start, timespec="minutes"),
+            window_end=format_iso(last_price_end, timespec="minutes"),
             duration_minutes=effective_duration,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=prof_slot,
@@ -329,7 +324,7 @@ def optimize_runtime(
     else:
         latest_start_eval = min(requested_latest_start, latest_available_start)
     requested_latest_start_iso = (
-        requested_latest_start.isoformat(timespec="minutes") if requested_latest_start else None
+        format_iso(requested_latest_start, timespec="minutes") if requested_latest_start else None
     )
     window_truncated_by_data = (
         requested_latest_start is not None and latest_start_eval < requested_latest_start
@@ -344,14 +339,14 @@ def optimize_runtime(
             reason="window_too_short_for_duration",
             candidates=0,
             profile_used=profile,
-            window_start=earliest_start.isoformat(timespec="minutes"),
-            window_end=latest_start_eval.isoformat(timespec="minutes"),
+            window_start=format_iso(earliest_start, timespec="minutes"),
+            window_end=format_iso(latest_start_eval, timespec="minutes"),
             duration_minutes=effective_duration,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=prof_slot,
             requested_latest_start=requested_latest_start_iso,
             window_truncated_by_data=window_truncated_by_data,
-            price_coverage_end=last_price_end.isoformat(timespec="minutes"),
+            price_coverage_end=format_iso(last_price_end, timespec="minutes"),
         )
 
     candidates: list[tuple[datetime, float]] = []
@@ -386,14 +381,14 @@ def optimize_runtime(
             reason=reason,
             candidates=0,
             profile_used=profile,
-            window_start=earliest_start.isoformat(timespec="minutes"),
-            window_end=latest_start_eval.isoformat(timespec="minutes"),
+            window_start=format_iso(earliest_start, timespec="minutes"),
+            window_end=format_iso(latest_start_eval, timespec="minutes"),
             duration_minutes=effective_duration,
             billing_slot_minutes=billing_slot_minutes,
             profile_slot_minutes=prof_slot,
             requested_latest_start=requested_latest_start_iso,
             window_truncated_by_data=window_truncated_by_data,
-            price_coverage_end=last_price_end.isoformat(timespec="minutes"),
+            price_coverage_end=format_iso(last_price_end, timespec="minutes"),
         )
 
     min_cost = min(item[1] for item in candidates)
@@ -409,18 +404,18 @@ def optimize_runtime(
 
     return PlanResult(
         status="ok",
-        best_start=best_start_dt.isoformat(timespec="minutes"),
-        best_end=best_end_dt.isoformat(timespec="minutes"),
+        best_start=format_iso(best_start_dt, timespec="minutes"),
+        best_end=format_iso(best_end_dt, timespec="minutes"),
         best_cost=round(picked[1], 6),
         reason=None,
         candidates=len(candidates),
         profile_used=profile,
-        window_start=earliest_start.isoformat(timespec="minutes"),
-        window_end=latest_start_eval.isoformat(timespec="minutes"),
+        window_start=format_iso(earliest_start, timespec="minutes"),
+        window_end=format_iso(latest_start_eval, timespec="minutes"),
         duration_minutes=effective_duration,
         billing_slot_minutes=billing_slot_minutes,
         profile_slot_minutes=prof_slot,
         requested_latest_start=requested_latest_start_iso,
         window_truncated_by_data=window_truncated_by_data,
-        price_coverage_end=last_price_end.isoformat(timespec="minutes"),
+        price_coverage_end=format_iso(last_price_end, timespec="minutes"),
     )
