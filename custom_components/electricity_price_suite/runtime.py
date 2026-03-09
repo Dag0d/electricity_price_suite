@@ -193,7 +193,7 @@ class TimelineRuntime:
                 "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
                 "cleared_rows": cleared_rows,
                 "reason": "no_sources_configured",
-                "hint": "Configure a primary source via config flow or add_source service.",
+                "hint": "Configure a primary source via config flow or manage_sources service.",
             }
 
         if overwrite and only_today_tomorrow:

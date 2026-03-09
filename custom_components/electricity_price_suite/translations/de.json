@@ -35,7 +35,7 @@
       },
       "primary_type": {
         "title": "Primärquelle konfigurieren",
-        "description": "Wähle, wie die primäre Preisquelle gelesen wird.\n\n**entity_action**\nEinen Service aufrufen und die Antwort parsen.\nBeispiel: offizielle Home Assistant Tibber-Integration via `tibber.get_prices`.\n\n**entity_attribute**\nSlots aus einem Entitätsattribut lesen.\nBeispiel: EPEX Spot Integrationen, die eine Slot-Liste in einem Attribut bereitstellen.\n\n**inject_only**\nKein automatisches Laden. Daten werden per `electricity_price_suite.inject_slots` übergeben.\nJedes Slot-Objekt muss mindestens `start_time` und `price_per_kwh` enthalten.\n\nSekundäre/Fallback-Quellen können später über `add_source` ergänzt werden.",
+        "description": "Wähle, wie die primäre Preisquelle gelesen wird.\n\n**entity_action**\nEinen Service aufrufen und die Antwort parsen.\nBeispiel: offizielle Home Assistant Tibber-Integration via `tibber.get_prices`.\n\n**entity_attribute**\nSlots aus einem Entitätsattribut lesen.\nBeispiel: EPEX Spot Integrationen, die eine Slot-Liste in einem Attribut bereitstellen.\n\n**inject_only**\nKein automatisches Laden. Daten werden per `electricity_price_suite.inject_slots` übergeben.\nJedes Slot-Objekt muss mindestens `start_time` und `price_per_kwh` enthalten.\n\nSekundäre/Fallback-Quellen können später über `manage_sources` ergänzt werden.",
         "data": {
           "source_type": "Typ der Primärquelle"
         }
@@ -130,15 +130,15 @@
   "services": {
     "refresh_timeline": {
       "name": "Timeline aktualisieren",
-      "description": "Slots für heute und morgen aus den konfigurierten Quellen laden und nach Priorität zusammenführen.",
+      "description": "Heutige und morgige Slots aus konfigurierten Quellen laden und nach Priorität mergen.",
       "fields": {
         "sources": {
           "name": "Quellen-Override",
-          "description": "Optional temporäre Quellenliste nur für diesen Aufruf."
+          "description": "Optionale temporäre Quellenliste nur für diesen Aufruf."
         },
         "overwrite": {
-          "name": "Gespeicherte Heute-/Morgen-Daten überschreiben",
-          "description": "Wenn true, werden die aktuell gespeicherten Zeilen für heute und morgen vor dem erneuten Abruf gelöscht."
+          "name": "Gespeicherte Heute/Morgen-Zeilen überschreiben",
+          "description": "Wenn true, werden bestehende Zeilen für heute und morgen vor dem erneuten Laden gelöscht."
         }
       }
     },
@@ -156,7 +156,7 @@
         },
         "source_priority": {
           "name": "Quellenpriorität",
-          "description": "Prioritätsrang für injizierte Zeilen (niedriger Rang ersetzt höheren Rang)."
+          "description": "Prioritätsrang für injizierte Zeilen (kleinerer Rang ersetzt größeren Rang)."
         },
         "is_primary": {
           "name": "Als Primärquelle behandeln",
@@ -164,7 +164,7 @@
         },
         "overwrite": {
           "name": "Zeilen für passende Tage überschreiben",
-          "description": "Wenn true, werden gespeicherte Zeilen für dieselben lokalen Tage vor dem Injizieren gelöscht."
+          "description": "Wenn true, werden vorhandene Zeilen für dieselben lokalen Tage vor dem Injizieren gelöscht."
         }
       }
     },
@@ -200,6 +200,10 @@
           "name": "Programmschlüssel",
           "description": "Programmschlüssel, der vom ausgewählten Profil-Logger geladen werden soll, zum Beispiel auto_2."
         },
+        "program_display_name": {
+          "name": "Programm-Anzeigename",
+          "description": "Optionaler kompakter Anzeigename, der mit dem Plan gespeichert wird, zum Beispiel Auto 2 [I,D,S]. Der technische Programmschlüssel bleibt unverändert."
+        },
         "align_start_to_billing_slot": {
           "name": "Start auf Abrechnungsslot ausrichten",
           "description": "Wenn true, werden Kandidatenstarts auf Abrechnungsslot-Grenzen begrenzt."
@@ -230,209 +234,135 @@
         },
         "latest_start": {
           "name": "Spätester Start (ISO)",
-          "description": "Experten-Override für den absolut spätesten erlaubten Startzeitpunkt (ISO-Zeitstempel). Intern wird dies auf die späteste Startgrenze des Optimizers normalisiert."
+          "description": "Experten-Override für den absolut spätesten erlaubten Startzeitpunkt (ISO). Intern auf die Optimizer-Grenze latest_start normalisiert."
         },
         "latest_finish": {
           "name": "Spätestes Ende (ISO)",
-          "description": "Experten-Override für den absolut spätesten erlaubten Endzeitpunkt (ISO-Zeitstempel). Intern wird daraus ein spätester Start abgeleitet."
-        },
-        "program_display_name": {
-          "name": "Programm-Anzeigename",
-          "description": "Optionaler kompakter Anzeigename, der mit dem Plan gespeichert wird, zum Beispiel Auto 2 [I,D,S]. Der technische Programmschlüssel bleibt unverändert."
+          "description": "Experten-Override für den absolut spätesten erlaubten Endzeitpunkt (ISO). Intern in einen abgeleiteten latest_start umgerechnet."
         }
       }
     },
     "manage_plan": {
       "name": "Plan verwalten",
-      "description": "Bestehende Plan-Entitäten zurücksetzen oder löschen.",
-      "fields": {
-        "reset": {
-          "name": "Plan zurücksetzen",
-          "description": "Setzt ausgewählte Plan-Entitäten zurück (Entity bleibt erhalten, geplanter Start und Laufdaten werden geleert)."
-        },
-        "delete": {
-          "name": "Plan löschen",
-          "description": "Löscht ausgewählte Plan-Entitäten und entfernt die gespeicherte Plan-Payload."
-        }
-      }
-    },
-    "reoptimize_plan": {
-      "name": "Plan neu optimieren",
-      "description": "Berechnet eine oder mehrere vorhandene Plan-Entitäten mit den gespeicherten Randbedingungen und den aktuellen Timeline-Daten neu."
-    },
-    "start_profile_logging": {
-      "name": "Profilaufzeichnung starten",
-      "description": "Startet einen neuen Verbrauchsprofil-Lauf für den ausgewählten Profil-Logger.",
-      "fields": {
-        "program_key": {
-          "name": "Programmschlüssel",
-          "description": "Programmschlüssel, der gestartet werden soll. Optional, wenn das Ziel bereits eine Programm-Profil-Entität ist."
-        }
-      }
-    },
-    "finish_profile_logging": {
-      "name": "Profilaufzeichnung beenden",
-      "description": "Beendet den aktiven Lauf und speichert das aktualisierte Profil.",
-      "fields": {
-        "program_key": {
-          "name": "Programmschlüssel",
-          "description": "Programmschlüssel, der beendet werden soll. Optional, wenn das Ziel bereits eine Programm-Profil-Entität ist."
-        }
-      }
-    },
-    "abort_profile_logging": {
-      "name": "Profilaufzeichnung abbrechen",
-      "description": "Bricht den aktiven Lauf ab und stellt den Profil-Snapshot von vor dem Start wieder her.",
-      "fields": {
-        "reason": {
-          "name": "Abbruchgrund",
-          "description": "Abbruchgrund, der im Logger-Runtime-Zustand gespeichert wird."
-        },
-        "program_key": {
-          "name": "Programmschlüssel",
-          "description": "Optionaler Programmschlüssel als Schutzbedingung. Wenn gesetzt, muss er mit dem aktiven Lauf übereinstimmen."
-        }
-      }
-    },
-    "get_consumption_profile": {
-      "name": "Verbrauchsprofil abrufen",
-      "description": "Gibt die Liste bekannter Programme oder ein gespeichertes Profil mit optionalem Resampling zurück.",
-      "fields": {
-        "program_key": {
-          "name": "Programmschlüssel",
-          "description": "Programmschlüssel, der exportiert werden soll. Wenn er auf dem Meta-Sensor fehlt, gibt der Dienst die Liste bekannter Programme zurück."
-        },
-        "desired_slot_minutes": {
-          "name": "Gewünschte Slot-Minuten",
-          "description": "Optionale resampelte Slotgröße. Muss ein ganzzahliges Vielfaches oder ein ganzzahliger Teiler der gespeicherten Slotlänge sein."
-        },
-        "debug": {
-          "name": "Debug",
-          "description": "Fügt, sofern vorhanden, Debug-Details in die exportierte Profil-Payload ein."
-        }
-      }
-    },
-    "reset_consumption_profile": {
-      "name": "Verbrauchsprofil zurücksetzen",
-      "description": "Leert ein gespeichertes Profil, behält die Profil-Entität aber bei.",
-      "fields": {
-        "program_key": {
-          "name": "Programmschlüssel",
-          "description": "Programmschlüssel, der zurückgesetzt werden soll. Optional, wenn das Ziel bereits eine Programm-Profil-Entität ist."
-        }
-      }
-    },
-    "delete_consumption_profile": {
-      "name": "Verbrauchsprofil löschen",
-      "description": "Löscht ein gespeichertes Profil und entfernt seine Entität.",
-      "fields": {
-        "program_key": {
-          "name": "Programmschlüssel",
-          "description": "Programmschlüssel, der gelöscht werden soll. Optional, wenn das Ziel bereits eine Programm-Profil-Entität ist."
-        }
-      }
-    },
-    "add_source": {
-      "name": "Quelle hinzufügen",
-      "description": "Eine Pull-Quelle zur Quellenkette hinzufügen oder aktualisieren.",
-      "fields": {
-        "id": {
-          "name": "Quellen-ID",
-          "description": "Eindeutige Quellen-ID innerhalb der ausgewählten Timeline."
-        },
-        "source_type": {
-          "name": "Quellentyp",
-          "description": "Pull-Quellenmodus. entity_attribute für Sensor-Attribute, entity_action für Service-Antworten."
-        },
-        "priority": {
-          "name": "Priorität",
-          "description": "Quellenpriorität (niedrigere Zahl gewinnt bei Konflikten)."
-        },
-        "source_entity_id": {
-          "name": "Quell-Entität",
-          "description": "Verwendete Entität der Quelle (für entity_attribute erforderlich, für entity_action optional)."
-        },
-        "attribute": {
-          "name": "Attribut",
-          "description": "Attributname mit Slot-Zeilen (nur entity_attribute)."
-        },
-        "action": {
-          "name": "Aktion",
-          "description": "Service-Aktion für den Abruf (nur entity_action), Format domain.service."
-        },
-        "response_path": {
-          "name": "Response-Pfad",
-          "description": "Punktpfad zur Slot-Liste in der Service-Antwort."
-        },
-        "request_payload": {
-          "name": "Request-Payload",
-          "description": "Zusätzliche Payload, die an den Service-Aufruf übergeben wird."
-        },
-        "time_key": {
-          "name": "Zeit-Key",
-          "description": "Schlüsselname für die Slot-Startzeit in jeder Zeile."
-        },
-        "price_key": {
-          "name": "Preis-Key",
-          "description": "Schlüsselname für den Preiswert in jeder Zeile."
-        },
-        "enabled": {
-          "name": "Aktiviert",
-          "description": "Aktiviert oder deaktiviert diese Quelle für Refresh-Läufe."
-        },
-        "inject_time_window": {
-          "name": "Zeitfenster injizieren",
-          "description": "Injiziert automatisch Start/Ende für heute+morgen in die Action-Payload."
-        },
-        "start_key": {
-          "name": "Start-Key",
-          "description": "Payload-Key für die injizierte Startzeit."
-        },
-        "end_key": {
-          "name": "End-Key",
-          "description": "Payload-Key für die injizierte Endzeit."
-        },
-        "time_format": {
-          "name": "Zeitformat",
-          "description": "Zeitformat für die injizierten Start/Ende-Werte."
-        }
-      }
-    },
-    "list_sources": {
-      "name": "Quellen auflisten",
-      "description": "Quellen-IDs oder eine vollständige Quellenkonfiguration anzeigen.",
-      "fields": {
-        "id": {
-          "name": "Quellen-ID",
-          "description": "Optionale Quellen-ID. Ohne Angabe werden nur IDs und Anzahl zurückgegeben."
-        }
-      }
-    },
-    "delete_source": {
-      "name": "Quelle löschen",
-      "description": "Eine Quelle aus der Quellenkette löschen.",
-      "fields": {
-        "id": {
-          "name": "Quellen-ID",
-          "description": "Zu löschende Quellen-ID."
-        }
-      }
-    },
-    "manage_estimated_runtime": {
-      "name": "Geschätzte Laufzeit verwalten",
-      "description": "Geschätzte Fallback-Laufzeiten für einen Profil-Logger hinzufügen, löschen, auflisten oder komplett leeren.",
+      "description": "Bestehende Plan-Entities zurücksetzen, löschen oder neu optimieren.",
       "fields": {
         "mode": {
           "name": "Modus",
-          "description": "Verwaltungsmodus: add, delete, list oder clear."
-        },
-        "items": {
-          "name": "Einträge",
-          "description": "Mapping von program_key zu duration_minutes für den add-Modus."
+          "description": "Verwaltungsmodus. Verwende reset, delete oder reoptimize."
+        }
+      }
+    },
+    "manage_profile": {
+      "name": "Profil verwalten",
+      "description": "Profile abrufen, zurücksetzen oder löschen sowie geschätzte Laufzeiten für einen Logger verwalten.",
+      "fields": {
+        "mode": {
+          "name": "Modus",
+          "description": "Verwaltungsmodus. Verwende get, reset, delete, add_estimated_runtimes, list_estimated_runtimes, delete_estimated_runtime oder clear_estimated_runtimes."
         },
         "program_key": {
           "name": "Programmschlüssel",
-          "description": "Programmschlüssel, der im delete-Modus entfernt werden soll."
+          "description": "Programmschlüssel für eine Profil-Aktion. Nur verwendet für mode=get, reset, delete, delete_estimated_runtime."
+        },
+        "desired_slot_minutes": {
+          "name": "Gewünschte Slot-Minuten",
+          "description": "Optionale resampelte Slotgröße. Nur verwendet für mode=get."
+        },
+        "debug": {
+          "name": "Debug-Payload",
+          "description": "Zusätzliche Laufzeit-/Debug-Details einschließen. Nur verwendet für mode=get."
+        },
+        "items": {
+          "name": "Einträge",
+          "description": "Mapping von program_key zu duration_minutes. Nur verwendet für mode=add_estimated_runtimes."
+        }
+      }
+    },
+    "manage_sources": {
+      "name": "Quellen verwalten",
+      "description": "Pull-Quellen in der Timeline-Quellenkette hinzufügen, auflisten oder löschen.",
+      "fields": {
+        "mode": {
+          "name": "Modus",
+          "description": "Verwaltungsmodus. Verwende add, list oder delete."
+        },
+        "id": {
+          "name": "Quellen-ID",
+          "description": "Eindeutige Quellen-ID innerhalb der gewählten Timeline. Nur verwendet für mode=add, list, delete."
+        },
+        "priority": {
+          "name": "Priorität",
+          "description": "Quellenpriorität (kleinere Zahl gewinnt bei Konflikten). Nur verwendet für mode=add."
+        },
+        "source_type": {
+          "name": "Quellentyp",
+          "description": "Pull-Quellentyp. Verwende entity_attribute für Attribute oder entity_action für Service-Antworten. Nur verwendet für mode=add."
+        },
+        "source_entity_id": {
+          "name": "Quellen-Entity",
+          "description": "Entity der Quelle (für entity_attribute erforderlich, für entity_action optional). Nur verwendet für mode=add."
+        },
+        "attribute": {
+          "name": "Attribut",
+          "description": "Attributname mit den Slot-Zeilen. Nur verwendet für mode=add."
+        },
+        "action": {
+          "name": "Aktion",
+          "description": "Aufzurufende Service-Aktion im Format domain.service. Nur verwendet für mode=add."
+        },
+        "response_path": {
+          "name": "Antwortpfad",
+          "description": "Gepunkteter Pfad zur Slot-Liste in der Service-Antwort. Nur verwendet für mode=add."
+        },
+        "request_payload": {
+          "name": "Request-Payload",
+          "description": "Zusätzliche Payload für den Action-Aufruf. Nur verwendet für mode=add."
+        },
+        "time_key": {
+          "name": "Zeit-Key",
+          "description": "Feldname für den Slot-Startzeitpunkt. Nur verwendet für mode=add."
+        },
+        "price_key": {
+          "name": "Preis-Key",
+          "description": "Feldname für den Preiswert. Nur verwendet für mode=add."
+        },
+        "enabled": {
+          "name": "Aktiviert",
+          "description": "Ob die Quelle aktiviert ist. Nur verwendet für mode=add."
+        },
+        "inject_time_window": {
+          "name": "Zeitfenster injizieren",
+          "description": "Start/Ende für heute und morgen automatisch in die Action-Payload schreiben. Nur verwendet für mode=add."
+        },
+        "start_key": {
+          "name": "Start-Key",
+          "description": "Payload-Key für den injizierten Startzeitpunkt. Nur verwendet für mode=add."
+        },
+        "end_key": {
+          "name": "End-Key",
+          "description": "Payload-Key für den injizierten Endzeitpunkt. Nur verwendet für mode=add."
+        },
+        "time_format": {
+          "name": "Datumsformat",
+          "description": "Datumsformat für injizierte Start-/Endwerte. Nur verwendet für mode=add."
+        }
+      }
+    },
+    "manage_profile_run": {
+      "name": "Profil-Lauf verwalten",
+      "description": "Einen aktiven Logger-Lauf starten, beenden oder abbrechen.",
+      "fields": {
+        "mode": {
+          "name": "Modus",
+          "description": "Verwaltungsmodus. Verwende start, finish oder abort."
+        },
+        "reason": {
+          "name": "Grund",
+          "description": "Abbruchgrund, der in der Logger-Laufzeit gespeichert wird. Nur verwendet für mode=abort."
+        },
+        "program_key": {
+          "name": "Programmschlüssel",
+          "description": "Programmschlüssel für die gewählte Lauf-Aktion. Nur verwendet für mode=start, finish, abort."
         }
       }
     }

@@ -241,5 +241,6 @@ views:
               - Uses `input_select.electricity_price_suite_logger_test_case` and `input_button.electricity_price_suite_run_logger_test`
               - Uses `input_number.electricity_price_suite_logger_total_kwh` plus the template sensor `sensor.electricity_price_suite_logger_total_kwh`
               - The logger automation waits 5 seconds after helper writes before any read-dependent action
-              - `get_profile` test results are written into persistent notifications
+              - Logger run lifecycle tests use `manage_profile_run` with mode-based actions
+              - `manage_profile` get-mode test results are written into persistent notifications
               - Runtime errors such as missing program key or wrong finish program should also create persistent notifications

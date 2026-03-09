@@ -24,21 +24,13 @@ from .const import (
     ENTRY_TYPE_PROFILE_LOGGER,
     ENTRY_TYPE_TIMELINE,
     PLATFORMS,
-    SERVICE_ABORT_PROFILE_LOGGING,
-    SERVICE_ADD_SOURCE,
-    SERVICE_DELETE_CONSUMPTION_PROFILE,
-    SERVICE_DELETE_SOURCE,
-    SERVICE_FINISH_PROFILE_LOGGING,
-    SERVICE_GET_CONSUMPTION_PROFILE,
     SERVICE_INJECT_SLOTS,
-    SERVICE_LIST_SOURCES,
-    SERVICE_MANAGE_ESTIMATED_RUNTIME,
+    SERVICE_MANAGE_PROFILE,
     SERVICE_MANAGE_PLAN,
+    SERVICE_MANAGE_PROFILE_RUN,
+    SERVICE_MANAGE_SOURCES,
     SERVICE_OPTIMIZE_DEVICE,
     SERVICE_REFRESH_TIMELINE,
-    SERVICE_REOPTIMIZE_PLAN,
-    SERVICE_RESET_CONSUMPTION_PROFILE,
-    SERVICE_START_PROFILE_LOGGING,
 )
 from .logger_runtime import ProfileLoggerRuntime
 from .resolvers import resolve_logger_runtime, resolve_plan_target, resolve_timeline_runtime
@@ -70,20 +62,47 @@ OPTIMIZE_SCHEMA = vol.Schema({
     vol.Optional("latest_start"): cv.string,
     vol.Optional("latest_finish"): cv.string,
 })
-MANAGE_PLAN_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("reset", default=False): cv.boolean, vol.Optional("delete", default=False): cv.boolean})
-REOPTIMIZE_PLAN_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS})
-ADD_SOURCE_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required("id"): cv.string, vol.Required("source_type"): vol.In(["entity_attribute", "entity_action"]), vol.Optional("priority"): vol.Coerce(int), vol.Optional("source_entity_id"): cv.entity_id, vol.Optional("attribute"): cv.string, vol.Optional("action"): cv.string, vol.Optional("response_path"): cv.string, vol.Optional("request_payload", default={}): dict, vol.Optional("time_key", default="start_time"): cv.string, vol.Optional("price_key", default="price_per_kwh"): cv.string, vol.Optional("enabled", default=True): cv.boolean, vol.Optional("inject_time_window", default=True): cv.boolean, vol.Optional("start_key", default="start"): cv.string, vol.Optional("end_key", default="end"): cv.string, vol.Optional("time_format", default="%Y-%m-%d %H:%M:%S"): cv.string})
-LIST_SOURCES_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("id"): cv.string})
-DELETE_SOURCE_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required("id"): cv.string})
-LOGGER_START_FINISH_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("program_key"): cv.string})
-LOGGER_ABORT_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("reason", default=ABORT_REASON_MANUAL): vol.In(ALLOWED_ABORT_REASONS), vol.Optional("program_key"): cv.string})
-LOGGER_GET_PROFILE_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("program_key"): cv.string, vol.Optional("desired_slot_minutes"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Optional("debug", default=False): cv.boolean})
-LOGGER_RESET_DELETE_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("program_key"): cv.string})
-LOGGER_MANAGE_ESTIMATED_RUNTIME_SCHEMA = vol.Schema({
+MANAGE_PLAN_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required("mode"): vol.In(["reset", "delete", "reoptimize"])})
+MANAGE_SOURCES_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
-    vol.Required("mode"): vol.In(["add", "delete", "list", "clear"]),
+    vol.Required("mode"): vol.In(["add", "list", "delete"]),
+    vol.Optional("id"): cv.string,
+    vol.Optional("source_type"): vol.In(["entity_attribute", "entity_action"]),
+    vol.Optional("priority"): vol.Coerce(int),
+    vol.Optional("source_entity_id"): cv.entity_id,
+    vol.Optional("attribute"): cv.string,
+    vol.Optional("action"): cv.string,
+    vol.Optional("response_path"): cv.string,
+    vol.Optional("request_payload", default={}): dict,
+    vol.Optional("time_key", default="start_time"): cv.string,
+    vol.Optional("price_key", default="price_per_kwh"): cv.string,
+    vol.Optional("enabled", default=True): cv.boolean,
+    vol.Optional("inject_time_window", default=True): cv.boolean,
+    vol.Optional("start_key", default="start"): cv.string,
+    vol.Optional("end_key", default="end"): cv.string,
+    vol.Optional("time_format", default="%Y-%m-%d %H:%M:%S"): cv.string,
+})
+LOGGER_MANAGE_RUN_SCHEMA = vol.Schema({
+    **cv.TARGET_SERVICE_FIELDS,
+    vol.Required("mode"): vol.In(["start", "finish", "abort"]),
+    vol.Optional("reason", default=ABORT_REASON_MANUAL): vol.In(ALLOWED_ABORT_REASONS),
+    vol.Optional("program_key"): cv.string,
+})
+LOGGER_MANAGE_PROFILE_SCHEMA = vol.Schema({
+    **cv.TARGET_SERVICE_FIELDS,
+    vol.Required("mode"): vol.In([
+        "get",
+        "reset",
+        "delete",
+        "add_estimated_runtimes",
+        "list_estimated_runtimes",
+        "delete_estimated_runtime",
+        "clear_estimated_runtimes",
+    ]),
     vol.Optional("items"): dict,
     vol.Optional("program_key"): cv.string,
+    vol.Optional("desired_slot_minutes"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    vol.Optional("debug", default=False): cv.boolean,
 })
 
 
@@ -166,10 +185,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         return response
 
     async def handle_manage_plan(call: ServiceCall) -> dict[str, Any]:
-        reset = bool(call.data.get("reset", False))
-        delete = bool(call.data.get("delete", False))
-        if reset == delete:
-            raise HomeAssistantError("exactly one of reset/delete must be true")
+        mode = call.data["mode"]
         raw = call.data.get("entity_id")
         if raw is None:
             raise HomeAssistantError("target with one or more plan entities is required")
@@ -183,28 +199,31 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 managed.append({"status": "not_found", "plan_entity_id": entity_id, "reason": "plan_not_found"})
                 continue
             runtime, device_slug = resolved
-            managed.append(await runtime.async_manage_plan(device_slug=device_slug, reset=reset, delete=delete))
+            if mode == "reoptimize":
+                managed.append(await runtime.async_reoptimize_plan(device_slug=device_slug))
+            else:
+                managed.append(
+                    await runtime.async_manage_plan(
+                        device_slug=device_slug,
+                        reset=(mode == "reset"),
+                        delete=(mode == "delete"),
+                    )
+                )
         return {"results": managed}
 
-    async def handle_reoptimize_plan(call: ServiceCall) -> dict[str, Any]:
-        raw = call.data.get("entity_id")
-        if raw is None:
-            raise HomeAssistantError("target with one or more plan entities is required")
-        target_entities = [raw] if isinstance(raw, str) else list(raw)
-        if not target_entities:
-            raise HomeAssistantError("target with one or more plan entities is required")
-        results: list[dict[str, Any]] = []
-        for entity_id in target_entities:
-            resolved = resolve_plan_target(hass.data[DOMAIN], entity_id)
-            if resolved is None:
-                results.append({"status": "not_found", "plan_entity_id": entity_id, "reason": "plan_not_found"})
-                continue
-            runtime, device_slug = resolved
-            results.append(await runtime.async_reoptimize_plan(device_slug=device_slug))
-        return {"results": results}
-
-    async def handle_add_source(call: ServiceCall) -> dict[str, Any]:
+    async def handle_manage_sources(call: ServiceCall) -> dict[str, Any]:
         runtime = await _resolve_timeline(call)
+        mode = call.data["mode"]
+        if mode == "list":
+            return await runtime.async_list_sources(call.data.get("id"))
+        if mode == "delete":
+            if not call.data.get("id"):
+                raise HomeAssistantError("id is required for mode=delete")
+            return await runtime.async_delete_source(call.data["id"])
+        if not call.data.get("id"):
+            raise HomeAssistantError("id is required for mode=add")
+        if not call.data.get("source_type"):
+            raise HomeAssistantError("source_type is required for mode=add")
         source_type = call.data["source_type"]
         source = {"id": call.data["id"], "type": source_type, "priority": call.data.get("priority", 9999), "enabled": call.data["enabled"], "slot_mapping": {"time_key": call.data["time_key"], "price_key": call.data["price_key"]}}
         if source_type == "entity_attribute":
@@ -227,81 +246,60 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 source["entity_id"] = call.data["source_entity_id"]
         return await runtime.async_add_source(source)
 
-    async def handle_list_sources(call: ServiceCall) -> dict[str, Any]:
-        runtime = await _resolve_timeline(call)
-        return await runtime.async_list_sources(call.data.get("id"))
-
-    async def handle_delete_source(call: ServiceCall) -> dict[str, Any]:
-        runtime = await _resolve_timeline(call)
-        return await runtime.async_delete_source(call.data["id"])
-
-    async def handle_start_logging(call: ServiceCall) -> dict[str, Any]:
-        runtime, implicit_program_key = await _resolve_logger(call)
-        result = await runtime.async_start(call.data.get("program_key") or implicit_program_key)
-        return result.as_dict()
-
-    async def handle_finish_logging(call: ServiceCall) -> dict[str, Any]:
-        runtime, implicit_program_key = await _resolve_logger(call)
-        result = await runtime.async_finish(call.data.get("program_key") or implicit_program_key)
-        return result.as_dict()
-
-    async def handle_abort_logging(call: ServiceCall) -> dict[str, Any]:
-        runtime, implicit_program_key = await _resolve_logger(call)
-        result = await runtime.async_abort(call.data.get("reason", ABORT_REASON_MANUAL), call.data.get("program_key") or implicit_program_key)
-        return result.as_dict()
-
-    async def handle_get_profile(call: ServiceCall) -> dict[str, Any]:
-        runtime, implicit_program_key = await _resolve_logger(call)
-        program_key = call.data.get("program_key") or implicit_program_key
-        desired_slot_minutes = call.data.get("desired_slot_minutes")
-        debug = bool(call.data.get("debug", False))
-        if program_key is None:
-            return {"ok": True, "programs": runtime.get_program_list()}
-        return runtime.get_profile_service_response(
-            program_key,
-            desired_slot_minutes=desired_slot_minutes,
-            debug=debug,
-        )
-
-    async def handle_reset_profile(call: ServiceCall) -> dict[str, Any]:
-        runtime, implicit_program_key = await _resolve_logger(call)
-        result = await runtime.async_reset_profile(call.data.get("program_key") or implicit_program_key)
-        return result.as_dict()
-
-    async def handle_delete_profile(call: ServiceCall) -> dict[str, Any]:
-        runtime, implicit_program_key = await _resolve_logger(call)
-        result = await runtime.async_delete_profile(call.data.get("program_key") or implicit_program_key)
-        return result.as_dict()
-
-    async def handle_manage_estimated_runtime(call: ServiceCall) -> dict[str, Any]:
+    async def handle_manage_profile_run(call: ServiceCall) -> dict[str, Any]:
         runtime, implicit_program_key = await _resolve_logger(call)
         mode = call.data["mode"]
-        if mode == "delete" and not (call.data.get("program_key") or implicit_program_key):
-            raise HomeAssistantError("program_key is required for delete mode")
-        if mode == "add" and not call.data.get("items"):
-            raise HomeAssistantError("items is required for add mode")
-        return await runtime.async_manage_estimated_runtime(
-            mode=mode,
-            items=call.data.get("items"),
-            program_key=call.data.get("program_key") or implicit_program_key,
-        )
+        program_key = call.data.get("program_key") or implicit_program_key
+        if mode == "start":
+            result = await runtime.async_start(program_key)
+        elif mode == "finish":
+            result = await runtime.async_finish(program_key)
+        elif mode == "abort":
+            result = await runtime.async_abort(call.data.get("reason", ABORT_REASON_MANUAL), program_key)
+        else:
+            raise HomeAssistantError(f"unsupported profile run mode: {mode}")
+        return result.as_dict()
+
+    async def handle_manage_profile(call: ServiceCall) -> dict[str, Any]:
+        runtime, implicit_program_key = await _resolve_logger(call)
+        mode = call.data["mode"]
+        program_key = call.data.get("program_key") or implicit_program_key
+        if mode == "get":
+            if program_key is None:
+                return {"ok": True, "programs": runtime.get_program_list()}
+            return runtime.get_profile_service_response(
+                program_key,
+                desired_slot_minutes=call.data.get("desired_slot_minutes"),
+                debug=bool(call.data.get("debug", False)),
+            )
+        if mode == "reset":
+            result = await runtime.async_reset_profile(program_key)
+            return result.as_dict()
+        if mode == "delete":
+            result = await runtime.async_delete_profile(program_key)
+            return result.as_dict()
+        if mode == "add_estimated_runtimes":
+            if not call.data.get("items"):
+                raise HomeAssistantError("items is required for mode=add_estimated_runtimes")
+            return await runtime.async_manage_estimated_runtime(mode="add", items=call.data.get("items"))
+        if mode == "list_estimated_runtimes":
+            return await runtime.async_manage_estimated_runtime(mode="list")
+        if mode == "delete_estimated_runtime":
+            if not program_key:
+                raise HomeAssistantError("program_key is required for mode=delete_estimated_runtime")
+            return await runtime.async_manage_estimated_runtime(mode="delete", program_key=program_key)
+        if mode == "clear_estimated_runtimes":
+            return await runtime.async_manage_estimated_runtime(mode="clear")
+        raise HomeAssistantError(f"unsupported profile mode: {mode}")
 
     service_defs = [
         (SERVICE_REFRESH_TIMELINE, handle_refresh, REFRESH_SCHEMA),
         (SERVICE_INJECT_SLOTS, handle_inject, INJECT_SCHEMA),
         (SERVICE_OPTIMIZE_DEVICE, handle_optimize, OPTIMIZE_SCHEMA),
         (SERVICE_MANAGE_PLAN, handle_manage_plan, MANAGE_PLAN_SCHEMA),
-        (SERVICE_REOPTIMIZE_PLAN, handle_reoptimize_plan, REOPTIMIZE_PLAN_SCHEMA),
-        (SERVICE_ADD_SOURCE, handle_add_source, ADD_SOURCE_SCHEMA),
-        (SERVICE_LIST_SOURCES, handle_list_sources, LIST_SOURCES_SCHEMA),
-        (SERVICE_DELETE_SOURCE, handle_delete_source, DELETE_SOURCE_SCHEMA),
-        (SERVICE_START_PROFILE_LOGGING, handle_start_logging, LOGGER_START_FINISH_SCHEMA),
-        (SERVICE_FINISH_PROFILE_LOGGING, handle_finish_logging, LOGGER_START_FINISH_SCHEMA),
-        (SERVICE_ABORT_PROFILE_LOGGING, handle_abort_logging, LOGGER_ABORT_SCHEMA),
-        (SERVICE_GET_CONSUMPTION_PROFILE, handle_get_profile, LOGGER_GET_PROFILE_SCHEMA),
-        (SERVICE_MANAGE_ESTIMATED_RUNTIME, handle_manage_estimated_runtime, LOGGER_MANAGE_ESTIMATED_RUNTIME_SCHEMA),
-        (SERVICE_RESET_CONSUMPTION_PROFILE, handle_reset_profile, LOGGER_RESET_DELETE_SCHEMA),
-        (SERVICE_DELETE_CONSUMPTION_PROFILE, handle_delete_profile, LOGGER_RESET_DELETE_SCHEMA),
+        (SERVICE_MANAGE_SOURCES, handle_manage_sources, MANAGE_SOURCES_SCHEMA),
+        (SERVICE_MANAGE_PROFILE_RUN, handle_manage_profile_run, LOGGER_MANAGE_RUN_SCHEMA),
+        (SERVICE_MANAGE_PROFILE, handle_manage_profile, LOGGER_MANAGE_PROFILE_SCHEMA),
     ]
     for name, func, schema in service_defs:
         hass.services.async_register(DOMAIN, name, func, schema=schema, supports_response=SupportsResponse.OPTIONAL)

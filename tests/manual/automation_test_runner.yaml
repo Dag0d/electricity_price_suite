@@ -167,8 +167,7 @@ action:
             target:
               entity_id: sensor.test_timeline_plan_test_device
             data:
-              reset: true
-              delete: false
+              mode: reset
 
       - conditions:
           - condition: state
@@ -179,8 +178,7 @@ action:
             target:
               entity_id: sensor.test_timeline_plan_test_device
             data:
-              reset: false
-              delete: true
+              mode: delete
 
       - conditions:
           - condition: state

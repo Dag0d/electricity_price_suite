@@ -35,7 +35,7 @@
       },
       "primary_type": {
         "title": "Configure Primary Source",
-        "description": "Choose how the primary price source is read.\n\n**entity_action**\nCall a service and parse its response.\nExample: official Home Assistant Tibber integration via `tibber.get_prices`.\n\n**entity_attribute**\nRead slots from an entity attribute.\nExample: EPEX Spot integrations exposing a slot list in an attribute.\n\n**inject_only**\nNo automatic fetching. Data is pushed via `electricity_price_suite.inject_slots`.\nEach slot object must include at least `start_time` and `price_per_kwh`.\n\nSecondary/fallback sources can be added later via `add_source`.",
+        "description": "Choose how the primary price source is read.\n\n**entity_action**\nCall a service and parse its response.\nExample: official Home Assistant Tibber integration via `tibber.get_prices`.\n\n**entity_attribute**\nRead slots from an entity attribute.\nExample: EPEX Spot integrations exposing a slot list in an attribute.\n\n**inject_only**\nNo automatic fetching. Data is pushed via `electricity_price_suite.inject_slots`.\nEach slot object must include at least `start_time` and `price_per_kwh`.\n\nSecondary/fallback sources can be added later via `manage_sources`.",
         "data": {
           "source_type": "Primary source type"
         }
@@ -200,6 +200,10 @@
           "name": "Program key",
           "description": "Program key to load from the selected profile logger, for example auto_2."
         },
+        "program_display_name": {
+          "name": "Program display name",
+          "description": "Optional compact display label persisted with the plan, for example Auto 2 [I,D,S]. This does not change the technical program key."
+        },
         "align_start_to_billing_slot": {
           "name": "Align start to billing slot",
           "description": "If true, candidate starts are restricted to billing slot boundaries."
@@ -235,204 +239,130 @@
         "latest_finish": {
           "name": "Latest finish (ISO)",
           "description": "Expert override for absolute latest allowed finish datetime (ISO). Internally converted to a derived latest start."
-        },
-        "program_display_name": {
-          "name": "Program display name",
-          "description": "Optional compact display label persisted with the plan, for example Auto 2 [I,D,S]. This does not change the technical program key."
         }
       }
     },
     "manage_plan": {
       "name": "Manage plan",
-      "description": "Reset or delete existing plan entities.",
-      "fields": {
-        "reset": {
-          "name": "Reset plan",
-          "description": "Reset selected plan entities (keep entity, clear planned start and runtime data)."
-        },
-        "delete": {
-          "name": "Delete plan",
-          "description": "Delete selected plan entities and remove persisted plan payload."
-        }
-      }
-    },
-    "reoptimize_plan": {
-      "name": "Re-optimize plan",
-      "description": "Recompute one or more existing plan entities using their stored constraints and the current timeline data."
-    },
-    "start_profile_logging": {
-      "name": "Start profile logging",
-      "description": "Start a new consumption profile run for the selected profile logger.",
-      "fields": {
-        "program_key": {
-          "name": "Program key",
-          "description": "Program key to start. Optional when the target is already a program profile entity."
-        }
-      }
-    },
-    "finish_profile_logging": {
-      "name": "Finish profile logging",
-      "description": "Finish the active run and persist the updated profile.",
-      "fields": {
-        "program_key": {
-          "name": "Program key",
-          "description": "Program key to finish. Optional when the target is already a program profile entity."
-        }
-      }
-    },
-    "abort_profile_logging": {
-      "name": "Abort profile logging",
-      "description": "Abort the active run and restore the profile snapshot from before start.",
-      "fields": {
-        "reason": {
-          "name": "Abort reason",
-          "description": "Abort reason stored with the logger runtime."
-        },
-        "program_key": {
-          "name": "Program key",
-          "description": "Optional program key guard. When set, it must match the active run."
-        }
-      }
-    },
-    "get_consumption_profile": {
-      "name": "Get consumption profile",
-      "description": "Return the list of known programs, or one stored profile with optional resampling.",
-      "fields": {
-        "program_key": {
-          "name": "Program key",
-          "description": "Program key to export. If omitted on the meta sensor, the service returns the known program list."
-        },
-        "desired_slot_minutes": {
-          "name": "Desired slot minutes",
-          "description": "Optional resampled slot size. Must be an integer multiple or divisor of the stored slot length."
-        },
-        "debug": {
-          "name": "Debug",
-          "description": "Include debug details in the exported profile payload where available."
-        }
-      }
-    },
-    "reset_consumption_profile": {
-      "name": "Reset consumption profile",
-      "description": "Clear one stored profile but keep the profile entity.",
-      "fields": {
-        "program_key": {
-          "name": "Program key",
-          "description": "Program key to reset. Optional when the target is already a program profile entity."
-        }
-      }
-    },
-    "delete_consumption_profile": {
-      "name": "Delete consumption profile",
-      "description": "Delete one stored profile and remove its entity.",
-      "fields": {
-        "program_key": {
-          "name": "Program key",
-          "description": "Program key to delete. Optional when the target is already a program profile entity."
-        }
-      }
-    },
-    "add_source": {
-      "name": "Add source",
-      "description": "Add or update one pull source in the source chain.",
-      "fields": {
-        "id": {
-          "name": "Source ID",
-          "description": "Unique source identifier inside the selected timeline."
-        },
-        "source_type": {
-          "name": "Source type",
-          "description": "Pull source mode. Use entity_attribute for sensor attributes or entity_action for service responses."
-        },
-        "priority": {
-          "name": "Priority",
-          "description": "Source priority (lower number wins in conflicts)."
-        },
-        "source_entity_id": {
-          "name": "Source entity",
-          "description": "Entity used by the source (required for entity_attribute, optional for entity_action)."
-        },
-        "attribute": {
-          "name": "Attribute",
-          "description": "Attribute name that contains slot rows (entity_attribute only)."
-        },
-        "action": {
-          "name": "Action",
-          "description": "Service action to call (entity_action only), format domain.service."
-        },
-        "response_path": {
-          "name": "Response path",
-          "description": "Dotted path to slot list in the action response."
-        },
-        "request_payload": {
-          "name": "Request payload",
-          "description": "Additional payload forwarded to the action call."
-        },
-        "time_key": {
-          "name": "Time key",
-          "description": "Key name used for slot start datetime in each row."
-        },
-        "price_key": {
-          "name": "Price key",
-          "description": "Key name used for price value in each row."
-        },
-        "enabled": {
-          "name": "Enabled",
-          "description": "Enable or disable this source in refresh runs."
-        },
-        "inject_time_window": {
-          "name": "Inject time window",
-          "description": "Auto-inject start/end values for today+tomorrow into action payload."
-        },
-        "start_key": {
-          "name": "Start key",
-          "description": "Payload key to write the injected start datetime into."
-        },
-        "end_key": {
-          "name": "End key",
-          "description": "Payload key to write the injected end datetime into."
-        },
-        "time_format": {
-          "name": "Time format",
-          "description": "Datetime format used for injected start/end payload values."
-        }
-      }
-    },
-    "list_sources": {
-      "name": "List sources",
-      "description": "List source IDs or one full source configuration.",
-      "fields": {
-        "id": {
-          "name": "Source ID",
-          "description": "Optional source id. If omitted, only ids and count are returned."
-        }
-      }
-    },
-    "delete_source": {
-      "name": "Delete source",
-      "description": "Delete one source from the source chain.",
-      "fields": {
-        "id": {
-          "name": "Source ID",
-          "description": "Source id to remove."
-        }
-      }
-    },
-    "manage_estimated_runtime": {
-      "name": "Manage estimated runtime",
-      "description": "Add, delete, list, or clear estimated fallback runtimes for a profile logger.",
+      "description": "Reset, delete, or re-optimize existing plan entities.",
       "fields": {
         "mode": {
           "name": "Mode",
-          "description": "Management mode: add, delete, list, or clear."
-        },
-        "items": {
-          "name": "Items",
-          "description": "Mapping of program_key to duration_minutes used for add mode."
+          "description": "Management mode. Use reset, delete, or reoptimize."
+        }
+      }
+    },
+    "manage_profile": {
+      "name": "Manage profile",
+      "description": "Get, reset, or delete profiles, and manage estimated runtimes for one logger.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "Management mode. Use get, reset, delete, add_estimated_runtimes, list_estimated_runtimes, delete_estimated_runtime, or clear_estimated_runtimes."
         },
         "program_key": {
           "name": "Program key",
-          "description": "Program key to remove in delete mode."
+          "description": "Program key used for one profile operation. Only used for mode=get, reset, delete, delete_estimated_runtime."
+        },
+        "desired_slot_minutes": {
+          "name": "Desired slot minutes",
+          "description": "Optional resampled slot size. Only used for mode=get."
+        },
+        "debug": {
+          "name": "Debug payload",
+          "description": "Include extra runtime/debug details. Only used for mode=get."
+        },
+        "items": {
+          "name": "Items",
+          "description": "Mapping of program_key to duration_minutes. Only used for mode=add_estimated_runtimes."
+        }
+      }
+    },
+    "manage_sources": {
+      "name": "Manage sources",
+      "description": "Add, list, or delete pull sources in the timeline source chain.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "Management mode. Use add, list, or delete."
+        },
+        "id": {
+          "name": "Source ID",
+          "description": "Unique source identifier inside the selected timeline. Only used for mode=add, list, delete."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "Source priority (lower number wins in conflicts). Only used for mode=add."
+        },
+        "source_type": {
+          "name": "Source type",
+          "description": "Pull source mode. Use entity_attribute for attributes or entity_action for service responses. Only used for mode=add."
+        },
+        "source_entity_id": {
+          "name": "Source entity",
+          "description": "Entity used by the source (required for entity_attribute, optional for entity_action). Only used for mode=add."
+        },
+        "attribute": {
+          "name": "Attribute",
+          "description": "Attribute name that contains slot rows. Only used for mode=add."
+        },
+        "action": {
+          "name": "Action",
+          "description": "Service action to call in domain.service format. Only used for mode=add."
+        },
+        "response_path": {
+          "name": "Response path",
+          "description": "Dotted path to slot list in the action response. Only used for mode=add."
+        },
+        "request_payload": {
+          "name": "Request payload",
+          "description": "Additional payload forwarded to the action call. Only used for mode=add."
+        },
+        "time_key": {
+          "name": "Time key",
+          "description": "Key name used for slot start datetime in each row. Only used for mode=add."
+        },
+        "price_key": {
+          "name": "Price key",
+          "description": "Key name used for price value in each row. Only used for mode=add."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the source is enabled. Only used for mode=add."
+        },
+        "inject_time_window": {
+          "name": "Inject time window",
+          "description": "Auto-inject start/end values for today and tomorrow into action payload. Only used for mode=add."
+        },
+        "start_key": {
+          "name": "Start key",
+          "description": "Payload key to write injected start datetime into. Only used for mode=add."
+        },
+        "end_key": {
+          "name": "End key",
+          "description": "Payload key to write injected end datetime into. Only used for mode=add."
+        },
+        "time_format": {
+          "name": "Datetime format",
+          "description": "Datetime format for injected start/end values. Only used for mode=add."
+        }
+      }
+    },
+    "manage_profile_run": {
+      "name": "Manage profile run",
+      "description": "Start, finish, or abort an active logger run.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "Management mode. Use start, finish, or abort."
+        },
+        "reason": {
+          "name": "Reason",
+          "description": "Abort reason stored with the logger runtime. Only used for mode=abort."
+        },
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key for the selected run operation. Only used for mode=start, finish, abort."
         }
       }
     }

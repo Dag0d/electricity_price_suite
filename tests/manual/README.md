@@ -144,4 +144,8 @@ This will create:
 - `7_start_missing_program_error` should create a logger error and a persistent notification because the runtime receives no `program_key`.
 - `8_start_auto_1_and_abort` should leave no committed profile update behind.
 - `9_finish_wrong_program_rolls_back` should trigger a rollback and a persistent notification.
+- Logger run lifecycle tests now use `manage_profile_run` with `mode=start|finish|abort`.
 - `5_get_profile_auto_1` and `6_get_profile_auto_1_resampled_5` create a persistent notification containing the returned service payload so you can inspect it directly.
+- These two tests now use `manage_profile` with `mode=get`.
+- `10_reset_profile_auto_1` uses `manage_profile` with `mode=reset`.
+- `11_delete_profile_auto_1` uses `manage_profile` with `mode=delete`.

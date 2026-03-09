@@ -18,22 +18,32 @@ refresh_timeline:
       selector:
         boolean: {}
 
-add_source:
-  name: Add source
-  description: Add or update one pull source in the timeline source chain.
+manage_sources:
+  name: Manage sources
+  description: Add, list, or delete pull sources in the timeline source chain.
   target:
     entity:
       domain: sensor
   fields:
-    id:
+    mode:
       required: true
-      description: Unique source identifier inside the selected timeline.
+      description: Management mode. Only used for mode=add, list, delete.
+      example: "add"
+      selector:
+        select:
+          options:
+            - "add"
+            - "list"
+            - "delete"
+    id:
+      required: false
+      description: Unique source identifier inside the selected timeline. Only used for mode=add, list, delete.
       example: "primary_action"
       selector:
         text: {}
     priority:
       required: false
-      description: Source priority (lower number wins in conflicts).
+      description: Source priority (lower number wins in conflicts). Only used for mode=add.
       example: "0"
       selector:
         number:
@@ -41,8 +51,8 @@ add_source:
           max: 9999
           mode: box
     source_type:
-      required: true
-      description: Pull source mode. Use entity_attribute for attributes or entity_action for service responses.
+      required: false
+      description: Pull source mode. Use entity_attribute for attributes or entity_action for service responses. Only used for mode=add.
       example: "entity_action"
       selector:
         select:
@@ -51,96 +61,68 @@ add_source:
             - "entity_action"
     source_entity_id:
       required: false
-      description: Entity used by the source (required for entity_attribute, optional for entity_action).
+      description: Entity used by the source (required for entity_attribute, optional for entity_action). Only used for mode=add.
       example: "sensor.market_data_total_price"
       selector:
         entity: {}
     attribute:
       required: false
-      description: Attribute name that contains slot rows (entity_attribute only).
+      description: Attribute name that contains slot rows (entity_attribute only). Only used for mode=add.
       example: "data"
       selector:
         text: {}
     action:
       required: false
-      description: Service action to call (entity_action only), format domain.service.
+      description: Service action to call (entity_action only), format domain.service. Only used for mode=add.
       example: "tibber.get_prices"
       selector:
         text: {}
     response_path:
       required: false
-      description: Dotted path to slot list in the action response.
+      description: Dotted path to slot list in the action response. Only used for mode=add.
       example: "prices.tibber-home"
       selector:
         text: {}
     request_payload:
       required: false
-      description: Additional payload forwarded to the action call.
+      description: Additional payload forwarded to the action call. Only used for mode=add.
       example: "{}"
       selector:
         object: {}
     time_key:
       required: false
-      description: Key name used for slot start datetime in each row.
+      description: Key name used for slot start datetime in each row. Only used for mode=add.
       example: "start_time"
       selector:
         text: {}
     price_key:
       required: false
-      description: Key name used for price value in each row.
+      description: Key name used for price value in each row. Only used for mode=add.
       example: "price_per_kwh"
       selector:
         text: {}
     inject_time_window:
       required: false
-      description: Auto-inject start/end values for today and tomorrow into action payload.
+      description: Auto-inject start/end values for today and tomorrow into action payload. Only used for mode=add.
       example: "true"
       selector:
         boolean: {}
     start_key:
       required: false
-      description: Payload key to write injected start datetime into.
+      description: Payload key to write injected start datetime into. Only used for mode=add.
       example: "start"
       selector:
         text: {}
     end_key:
       required: false
-      description: Payload key to write injected end datetime into.
+      description: Payload key to write injected end datetime into. Only used for mode=add.
       example: "end"
       selector:
         text: {}
     time_format:
       required: false
-      description: Datetime format for injected start/end values.
+      description: Datetime format for injected start/end values. Only used for mode=add.
       example: "%Y-%m-%d %H:%M:%S"
-      selector:
-        text: {}
-
-list_sources:
-  name: List sources
-  description: List source IDs, or one source config when id is provided.
-  target:
-    entity:
-      domain: sensor
-  fields:
-    id:
-      required: false
-      description: Optional source id. If omitted, only ids and count are returned.
-      example: "primary_action"
-      selector:
-        text: {}
-
-delete_source:
-  name: Delete source
-  description: Delete one source from the timeline source chain by id.
-  target:
-    entity:
-      domain: sensor
-  fields:
-    id:
-      required: true
-      description: Source id to remove.
-      example: "fallback_attribute"
       selector:
         text: {}
 
@@ -324,69 +306,42 @@ optimize_device:
 
 manage_plan:
   name: Manage plan
-  description: Reset or delete existing plan entities.
+  description: Reset, delete, or re-optimize existing plan entities.
   target:
     entity:
       domain: sensor
   fields:
-    reset:
-      required: false
-      description: Reset selected plan entities and clear their planned start without deleting the entity.
-      example: "true"
+    mode:
+      required: true
+      description: Management mode. Use reset, delete, or reoptimize.
+      example: "reset"
       selector:
-        boolean: {}
-    delete:
-      required: false
-      description: Delete selected plan entities and remove persisted plan payload.
-      example: "false"
-      selector:
-        boolean: {}
+        select:
+          options:
+            - "reset"
+            - "delete"
+            - "reoptimize"
 
-reoptimize_plan:
-  name: Re-optimize plan
-  description: Recompute one or more existing plan entities using their stored constraints and current timeline data.
-  target:
-    entity:
-      domain: sensor
-
-start_profile_logging:
-  name: Start profile logging
-  description: Start a new consumption profile run for the selected profile logger.
+manage_profile_run:
+  name: Manage profile run
+  description: Start, finish, or abort an active logger run.
   target:
     entity:
       domain: sensor
   fields:
-    program_key:
-      required: false
-      description: Program key to start. Optional when the target is already a program profile entity.
-      example: "auto_2"
+    mode:
+      required: true
+      description: Management mode. Use start, finish, or abort.
+      example: "start"
       selector:
-        text: {}
-
-finish_profile_logging:
-  name: Finish profile logging
-  description: Finish the active run and persist the updated profile.
-  target:
-    entity:
-      domain: sensor
-  fields:
-    program_key:
-      required: false
-      description: Program key to finish. Optional when the target is already a program profile entity.
-      example: "auto_2"
-      selector:
-        text: {}
-
-abort_profile_logging:
-  name: Abort profile logging
-  description: Abort the active run and restore the profile snapshot from before start.
-  target:
-    entity:
-      domain: sensor
-  fields:
+        select:
+          options:
+            - "start"
+            - "finish"
+            - "abort"
     reason:
       required: false
-      description: Abort reason stored with the logger runtime.
+      description: Abort reason stored with the logger runtime. Only used for mode=abort.
       example: "manual_abort"
       selector:
         select:
@@ -397,27 +352,41 @@ abort_profile_logging:
             - "sampling_delay_exceeded"
     program_key:
       required: false
-      description: Optional program key guard. When set, it must match the active run.
+      description: Program key for the selected run operation. Only used for mode=start, finish, abort.
       example: "auto_2"
       selector:
         text: {}
 
-get_consumption_profile:
-  name: Get consumption profile
-  description: Return the list of known programs, or one stored profile with optional resampling.
+manage_profile:
+  name: Manage profile
+  description: Get, reset, or delete profiles, and manage estimated runtimes for one logger.
   target:
     entity:
       domain: sensor
   fields:
+    mode:
+      required: true
+      description: Management mode. Use get, reset, delete, add_estimated_runtimes, list_estimated_runtimes, delete_estimated_runtime, or clear_estimated_runtimes.
+      example: "get"
+      selector:
+        select:
+          options:
+            - "get"
+            - "reset"
+            - "delete"
+            - "add_estimated_runtimes"
+            - "list_estimated_runtimes"
+            - "delete_estimated_runtime"
+            - "clear_estimated_runtimes"
     program_key:
       required: false
-      description: Program key to export. If omitted on the meta sensor, the service returns the known program list.
+      description: Program key used for one profile operation. Only used for mode=get, reset, delete, delete_estimated_runtime.
       example: "auto_2"
       selector:
         text: {}
     desired_slot_minutes:
       required: false
-      description: Optional resampled slot size. Must be an integer multiple or divisor of the stored slot length.
+      description: Optional resampled slot size. Must be an integer multiple or divisor of the stored slot length. Only used for mode=get.
       example: "15"
       selector:
         number:
@@ -426,66 +395,13 @@ get_consumption_profile:
           mode: box
     debug:
       required: false
-      description: Include debug details in the exported profile payload where available.
+      description: Include debug details in the exported profile payload where available. Only used for mode=get.
       example: "false"
       selector:
         boolean: {}
-
-manage_estimated_runtime:
-  name: Manage estimated runtime
-  description: Add, delete, list, or clear estimated fallback runtimes for one profile logger.
-  target:
-    entity:
-      domain: sensor
-  fields:
-    mode:
-      required: true
-      description: Management mode. Use add, delete, list, or clear.
-      example: "add"
-      selector:
-        select:
-          options:
-            - "add"
-            - "delete"
-            - "list"
-            - "clear"
     items:
       required: false
-      description: Mapping of program_key to duration_minutes used in add mode.
+      description: Mapping of program_key to duration_minutes. Only used for mode=add_estimated_runtimes.
       example: "{\"auto_2\": 180, \"auto_2_i_d_s\": 140}"
       selector:
         object: {}
-    program_key:
-      required: false
-      description: Program key to remove in delete mode.
-      example: "auto_2_i_d_s"
-      selector:
-        text: {}
-
-reset_consumption_profile:
-  name: Reset consumption profile
-  description: Clear one stored profile but keep the profile entity.
-  target:
-    entity:
-      domain: sensor
-  fields:
-    program_key:
-      required: false
-      description: Program key to reset. Optional when the target is already a program profile entity.
-      example: "auto_2"
-      selector:
-        text: {}
-
-delete_consumption_profile:
-  name: Delete consumption profile
-  description: Delete one stored profile and remove its entity.
-  target:
-    entity:
-      domain: sensor
-  fields:
-    program_key:
-      required: false
-      description: Program key to delete. Optional when the target is already a program profile entity.
-      example: "auto_2"
-      selector:
-        text: {}

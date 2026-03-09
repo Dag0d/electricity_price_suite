@@ -199,9 +199,9 @@ Per-program learned profile sensor with:
 
 All services are in domain `electricity_price_suite`.
 
-- `refresh_timeline`, `inject_slots`, `optimize_device`, `add_source`, `list_sources`, `delete_source` use a timeline target.
-- `manage_plan` and `reoptimize_plan` use one or more plan entity targets.
-- `start_profile_logging`, `finish_profile_logging`, `abort_profile_logging`, `get_consumption_profile`, `manage_estimated_runtime`, `reset_consumption_profile`, `delete_consumption_profile` use a profile logger target.
+- `refresh_timeline`, `inject_slots`, `optimize_device`, `manage_sources` use a timeline target.
+- `manage_plan` uses one or more plan entity targets.
+- `manage_profile_run`, `manage_profile` use a profile logger target.
 
 ---
 
@@ -372,257 +372,207 @@ If neither exists, the optimizer returns `no-candidate` with a specific reason.
 
 ### `manage_plan`
 
-Resets or deletes existing plan entities.
+Resets, deletes, or re-optimizes existing plan entities.
 
 #### Inputs
 
 - `target` (required).
   - Expected: one or more existing plan entities (`sensor.<timeline_slug>_plan_<device_slug>`).
   - Effect: selected plan entities are managed.
-- `reset` (optional).
-  - Expected: boolean; exactly one of `reset`/`delete` must be true.
-  - Effect: keeps entity, clears plan payload to a reset state (`status=reset`, no start timestamp).
-- `delete` (optional).
-  - Expected: boolean; exactly one of `reset`/`delete` must be true.
-  - Effect: removes plan payload and plan entity from registry.
+- `mode` (required).
+  - Expected: `reset | delete | reoptimize`.
+  - Effect: chooses which plan-management action is executed.
 
 #### Response (typical)
 
 - `results`: list of per-target results:
-  - `status`: `reset | deleted | not_found`
+  - `status`: `reset | deleted | ok | no-candidate | not_found | not_reoptimized`
   - `plan_entity_id`
   - `reason`
 
 ---
 
-### `reoptimize_plan`
+### `manage_profile_run`
 
-Recomputes one or more existing plan entities using the constraints already stored on the plan itself.
-
-This is useful when:
-
-- new price data has arrived,
-- the original plan still exists,
-- and you want to recompute the same plan without rebuilding the full `optimize_device` payload.
-
-#### Inputs
-
-- `target` (required).
-  - Expected: one or more existing plan entities (`sensor.<timeline_slug>_plan_<device_slug>`).
-  - Effect: each selected plan is re-optimized against the current timeline data using its stored profile, duration, cost tolerance, and requested latest-start boundary.
-
-#### Response (typical)
-
-- `results`: list of per-target results:
-
----
-
-### `start_profile_logging`
-
-Starts a new logger run for the selected profile logger.
+Starts, finishes, or aborts a logger run for the selected profile logger.
 
 #### Inputs
 
 - `target` (required).
   - Expected: one profile logger meta sensor or one program profile sensor.
+- `mode` (required).
+  - Expected: `start | finish | abort`.
+  - Effect: chooses the run-lifecycle action.
 - `program_key` (optional when target is already a profile sensor).
   - Expected: program key string.
-
-### `finish_profile_logging`
-
-Finishes the active logger run and persists the updated profile.
-
-#### Inputs
-
-- `target` (required).
-- `program_key` (optional when target is already a profile sensor).
-
-### `abort_profile_logging`
-
-Aborts the active logger run and restores the previous profile snapshot.
-
-#### Inputs
-
-- `target` (required).
+  - Effect: program to start, finish, or guard during abort.
 - `reason` (optional).
+  - Only used for mode=`abort`.
   - Expected: one of `manual_abort`, `program_mismatch`, `restart_recovery`, `sampling_delay_exceeded`.
-- `program_key` (optional).
 
-### `get_consumption_profile`
+### `manage_profile`
 
-Returns either the list of known programs, or one profile payload.
-
-#### Inputs
-
-- `target` (required).
-- `program_key` (optional).
-  - If omitted on the meta sensor, the response returns the known program list.
-- `desired_slot_minutes` (optional).
-  - Resamples the profile when the requested slot length is an integer multiple or divisor of the stored slot length.
-- `debug` (optional).
-
-### `manage_estimated_runtime`
-
-Adds, deletes, lists, or clears estimated fallback runtimes for a profile logger.
+Returns, resets, deletes, or manages fallback estimated runtimes for a profile logger.
 
 #### Inputs
 
 - `target` (required).
 - `mode` (required).
-  - Expected: `add | delete | list | clear`.
-- `items` (required for `add`).
+  - Expected: `get | reset | delete | add_estimated_runtimes | list_estimated_runtimes | delete_estimated_runtime | clear_estimated_runtimes`.
+  - Effect: chooses which profile-management action is executed.
+- `program_key` (optional).
+  - Only used for mode=`get`, `reset`, `delete`, `delete_estimated_runtime`.
+  - If omitted for mode=`get` on the meta sensor, the response returns the known program list.
+- `desired_slot_minutes` (optional).
+  - Only used for mode=`get`.
+  - Resamples the profile when the requested slot length is an integer multiple or divisor of the stored slot length.
+- `debug` (optional).
+  - Only used for mode=`get`.
+- `items` (optional).
+  - Only used for mode=`add_estimated_runtimes`.
   - Expected: mapping of `program_key -> duration_minutes`.
-- `program_key` (required for `delete`).
-  - Expected: one normalized program key.
 
 #### Typical use
 
 ```yaml
-action: electricity_price_suite.manage_estimated_runtime
+action: electricity_price_suite.manage_profile
 target:
   entity_id: sensor.dishwasher_profile_logger_meta
 data:
-  mode: add
+  mode: add_estimated_runtimes
   items:
     auto_2: 180
     auto_2_i_d_s: 140
 ```
 
-### `reset_consumption_profile`
+#### Response (typical)
 
-Clears one stored profile but keeps the entity.
-
-#### Inputs
-
-- `target` (required).
-- `program_key` (optional when target is already a profile sensor).
-
-### `delete_consumption_profile`
-
-Deletes one stored profile and removes its entity.
-
-#### Inputs
-
-- `target` (required).
-- `program_key` (optional when target is already a profile sensor).
-  - `status`: `ok | no-candidate | not_found | not_reoptimized`
-  - `plan_entity_id`
-  - `best_start`
-  - `best_end`
-  - `best_cost`
-  - `reason`
+- mode=`get`
+  - profile list or one profile payload
+- mode=`reset`
+  - `status`: `ok | not_found`
+  - `program_key`
+- mode=`delete`
+  - `status`: `ok | not_found`
+  - `program_key`
+- mode=`add_estimated_runtimes`
+  - `status`: `ok`
+  - `count`
+  - `estimated_runtimes`
+- mode=`list_estimated_runtimes`
+  - `status`: `ok`
+  - `count`
+  - `estimated_runtimes`
+- mode=`delete_estimated_runtime`
+  - `status`: `ok | not_found`
+  - `program_key`
+- mode=`clear_estimated_runtimes`
+  - `status`: `ok`
+  - `count`
 
 ---
 
-### `add_source`
+### `manage_sources`
 
-Adds or updates a source definition in the timeline source chain.
+Adds, lists, or deletes source definitions in the timeline source chain.
 
-`add_source` currently supports pull sources only:
+`manage_sources` currently supports pull sources only:
 
 - `entity_attribute`
 - `entity_action`
 
-`inject_only` is available for the primary source during config flow and for direct data injection via `inject_slots`, but it is not added through `add_source`.
+`inject_only` is available for the primary source during config flow and for direct data injection via `inject_slots`, but it is not added through `manage_sources`.
 
 #### Inputs
 
 - `target` (required).
-  - Expected: exactly one timeline target entity.
-  - Effect: source is added to that timeline source chain.
-- `id` (required).
+  - Expected: exactly one timeline target entity for mode=`add` and mode=`delete`; one timeline target entity for mode=`list`.
+  - Effect: selects which timeline source chain is managed.
+- `mode` (required).
+  - Expected: `add | list | delete`.
+  - Effect: chooses which source-management action is executed.
+- `id` (optional).
+  - Only used for mode=`add`, `list`, `delete`.
   - Expected: unique source identifier string within timeline.
-  - Effect: creates or updates this source entry.
-- `source_type` (required).
+- `source_type` (optional).
+  - Only used for mode=`add`.
   - Expected: `entity_attribute | entity_action`.
   - Effect: chooses provider path.
 - `priority` (optional).
+  - Only used for mode=`add`.
   - Expected: integer (lower = stronger).
   - Effect: merge rank for rows from this source.
 - `source_entity_id` (optional).
+  - Only used for mode=`add`.
   - Expected: entity id.
   - Effect: used by source type where entity context is required.
 - `attribute` (optional for `entity_attribute`, required there).
+  - Only used for mode=`add`.
   - Expected: attribute name string.
   - Effect: defines where slot list is read from state attributes.
 - `action` (optional for `entity_action`, required there).
+  - Only used for mode=`add`.
   - Expected: `domain.service` or `domain/service`.
   - Effect: action invoked to fetch source data.
 - `response_path` (optional for `entity_action`, required there).
+  - Only used for mode=`add`.
   - Expected: dotted path into service response payload.
   - Effect: points to list that should contain slot rows.
 - `request_payload` (optional for `entity_action`).
+  - Only used for mode=`add`.
   - Expected: object.
   - Effect: forwarded as action payload.
 - `time_key` (optional, default `start_time`).
+  - Only used for mode=`add`.
   - Expected: string.
   - Effect: source row field name used as slot start timestamp.
 - `price_key` (optional, default `price_per_kwh`).
+  - Only used for mode=`add`.
   - Expected: string.
   - Effect: source row field name used as slot price.
 - `enabled` (optional, default `true`).
+  - Only used for mode=`add`.
   - Expected: boolean.
   - Effect: enables/disables source participation in refresh.
 - `inject_time_window` (optional for `entity_action`, default `true`).
+  - Only used for mode=`add`.
   - Expected: boolean.
   - Effect: auto-injects today/tomorrow time window into request payload.
 - `start_key` (optional, default `start`).
+  - Only used for mode=`add`.
   - Expected: string.
   - Effect: payload key used for injected window start.
 - `end_key` (optional, default `end`).
+  - Only used for mode=`add`.
   - Expected: string.
   - Effect: payload key used for injected window end.
 - `time_format` (optional, default `%Y-%m-%d %H:%M:%S`).
+  - Only used for mode=`add`.
   - Expected: datetime format string.
   - Effect: format used for injected window start/end values.
 
 #### Response (typical)
 
-- `status`: `ok`
-- `timeline_entity`
-- `source`: normalized source object as stored
-- `source_count`: number of sources in chain after upsert
-
----
-
-### `list_sources`
-
-Lists source IDs or one source configuration.
-
-#### Inputs
-
-- `target` (required)
-- `id` (optional): if provided, returns full config for that source
-
-#### Response (typical)
-
-- If `id` provided:
+- mode=`add`
+  - `status`: `ok`
+  - `timeline_entity`
+  - `source`
+  - `source_count`
+- mode=`list`
+  - if `id` provided:
   - `status`: `ok | not_found`
   - `timeline_entity`
-  - `source`: source object or `null`
-- If `id` omitted:
+  - `source`
+  - if `id` omitted:
   - `status`: `ok`
   - `timeline_entity`
   - `source_ids`: list of configured source ids
   - `count`: source count
-
----
-
-### `delete_source`
-
-Deletes one source from the chain.
-
-#### Inputs
-
-- `target` (required)
-- `id` (required)
-
-#### Response (typical)
-
-- `status`: `ok | not_found`
-- `timeline_entity`
-- `deleted_source_id`: deleted id or `null`
-- `source_count`: remaining source count
+- mode=`delete`
+  - `status`: `ok | not_found`
+  - `timeline_entity`
+  - `deleted_source_id`
+  - `source_count`
 
 ## Optimizer Model Notes
 

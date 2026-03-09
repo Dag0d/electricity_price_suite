@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.0 - 2026-03-09
+
+### Changed
+- Consolidated the public service surface to reduce fragmentation:
+  - `manage_sources` now replaces `add_source`, `list_sources`, and `delete_source`
+  - `manage_plan` now uses `mode=reset|delete|reoptimize` and replaces the standalone `reoptimize_plan` path
+  - `manage_profile_run` now replaces `start_profile_logging`, `finish_profile_logging`, and `abort_profile_logging`
+  - `manage_profile` now replaces `get_consumption_profile`, `reset_consumption_profile`, `delete_consumption_profile`, and `manage_estimated_runtime`
+- Updated service metadata, translations, and README documentation to describe the new mode-based service model consistently.
+- Updated the tracked manual test automations and shared test dashboard to use the consolidated service API.
+
+### Notes
+- This release intentionally changes the service API and removes the previous split service names.
+
 ## 1.3.0 - 2026-03-09
 
 ### Added
