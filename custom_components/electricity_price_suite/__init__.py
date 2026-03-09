@@ -32,6 +32,7 @@ from .const import (
     SERVICE_GET_CONSUMPTION_PROFILE,
     SERVICE_INJECT_SLOTS,
     SERVICE_LIST_SOURCES,
+    SERVICE_MANAGE_ESTIMATED_RUNTIME,
     SERVICE_MANAGE_PLAN,
     SERVICE_OPTIMIZE_DEVICE,
     SERVICE_REFRESH_TIMELINE,
@@ -58,6 +59,7 @@ OPTIMIZE_SCHEMA = vol.Schema({
     vol.Optional("billing_slot_minutes"): vol.Coerce(int),
     vol.Optional("profile_logger_entity"): cv.entity_id,
     vol.Optional("program_key"): cv.string,
+    vol.Optional("program_display_name"): cv.string,
     vol.Optional("align_start_to_billing_slot", default=False): cv.boolean,
     vol.Optional("max_extra_cost_percent", default=DEFAULT_MAX_EXTRA_COST_PERCENT): vol.All(vol.Coerce(float), vol.Range(min=0)),
     vol.Optional("prefer_earliest", default=DEFAULT_PREFER_EARLIEST): cv.boolean,
@@ -77,6 +79,12 @@ LOGGER_START_FINISH_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optiona
 LOGGER_ABORT_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("reason", default=ABORT_REASON_MANUAL): vol.In(ALLOWED_ABORT_REASONS), vol.Optional("program_key"): cv.string})
 LOGGER_GET_PROFILE_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("program_key"): cv.string, vol.Optional("desired_slot_minutes"): vol.All(vol.Coerce(int), vol.Range(min=1)), vol.Optional("debug", default=False): cv.boolean})
 LOGGER_RESET_DELETE_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("program_key"): cv.string})
+LOGGER_MANAGE_ESTIMATED_RUNTIME_SCHEMA = vol.Schema({
+    **cv.TARGET_SERVICE_FIELDS,
+    vol.Required("mode"): vol.In(["add", "delete", "list", "clear"]),
+    vol.Optional("items"): dict,
+    vol.Optional("program_key"): cv.string,
+})
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -144,6 +152,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             billing_slot_minutes=call.data.get("billing_slot_minutes"),
             profile_logger_entity=profile_logger_entity,
             program_key=program_key,
+            program_display_name=call.data.get("program_display_name"),
             align_start_to_billing_slot=call.data["align_start_to_billing_slot"],
             max_extra_cost_percent=call.data["max_extra_cost_percent"],
             prefer_earliest=call.data["prefer_earliest"],
@@ -264,6 +273,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         result = await runtime.async_delete_profile(call.data.get("program_key") or implicit_program_key)
         return result.as_dict()
 
+    async def handle_manage_estimated_runtime(call: ServiceCall) -> dict[str, Any]:
+        runtime, implicit_program_key = await _resolve_logger(call)
+        mode = call.data["mode"]
+        if mode == "delete" and not (call.data.get("program_key") or implicit_program_key):
+            raise HomeAssistantError("program_key is required for delete mode")
+        if mode == "add" and not call.data.get("items"):
+            raise HomeAssistantError("items is required for add mode")
+        return await runtime.async_manage_estimated_runtime(
+            mode=mode,
+            items=call.data.get("items"),
+            program_key=call.data.get("program_key") or implicit_program_key,
+        )
+
     service_defs = [
         (SERVICE_REFRESH_TIMELINE, handle_refresh, REFRESH_SCHEMA),
         (SERVICE_INJECT_SLOTS, handle_inject, INJECT_SCHEMA),
@@ -277,6 +299,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         (SERVICE_FINISH_PROFILE_LOGGING, handle_finish_logging, LOGGER_START_FINISH_SCHEMA),
         (SERVICE_ABORT_PROFILE_LOGGING, handle_abort_logging, LOGGER_ABORT_SCHEMA),
         (SERVICE_GET_CONSUMPTION_PROFILE, handle_get_profile, LOGGER_GET_PROFILE_SCHEMA),
+        (SERVICE_MANAGE_ESTIMATED_RUNTIME, handle_manage_estimated_runtime, LOGGER_MANAGE_ESTIMATED_RUNTIME_SCHEMA),
         (SERVICE_RESET_CONSUMPTION_PROFILE, handle_reset_profile, LOGGER_RESET_DELETE_SCHEMA),
         (SERVICE_DELETE_CONSUMPTION_PROFILE, handle_delete_profile, LOGGER_RESET_DELETE_SCHEMA),
     ]

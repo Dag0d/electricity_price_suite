@@ -398,6 +398,7 @@ class TimelineRuntime:
         billing_slot_minutes: int | None,
         profile_logger_entity: str | None,
         program_key: str | None,
+        program_display_name: str | None,
         align_start_to_billing_slot: bool,
         max_extra_cost_percent: float,
         prefer_earliest: bool,
@@ -410,6 +411,8 @@ class TimelineRuntime:
     ) -> dict[str, Any]:
         profile_source = "service_payload"
         profile_meta: dict[str, Any] | None = None
+        program_key_used = program_key
+        program_display_name_used = program_display_name
 
         if profile_logger_entity:
             logger_runtime, implicit_program_key = resolve_logger_runtime(
@@ -430,7 +433,10 @@ class TimelineRuntime:
                     align_start_to_billing_slot=align_start_to_billing_slot,
                     profile_source="profile_logger",
                     profile_meta={"entity_id": profile_logger_entity},
+                    program_key_used=program_key_used,
+                    program_display_name_used=program_display_name_used,
                 )
+            effective_program_key = program_key or implicit_program_key
             (
                 loaded_profile,
                 loaded_duration,
@@ -440,27 +446,48 @@ class TimelineRuntime:
             ) = load_profile_logger_profile(
                 logger_runtime,
                 profile_logger_entity=profile_logger_entity,
-                program_key=program_key or implicit_program_key,
+                program_key=effective_program_key,
+            )
+            program_key_used = effective_program_key
+            program_display_name_used = (
+                program_display_name
+                or logger_runtime.get_program_display_name(effective_program_key)
             )
             if load_reason is not None:
-                result = self._build_no_candidate_result(load_reason)
-                return await self._persist_plan_result(
-                    device_name=device_name,
-                    result=result,
-                    deadline_mode=deadline_mode,
-                    deadline_minutes=deadline_minutes,
-                    latest_start=latest_start,
-                    latest_finish=latest_finish,
-                    max_extra_cost_percent=max_extra_cost_percent,
-                    prefer_earliest=prefer_earliest,
-                    align_start_to_billing_slot=align_start_to_billing_slot,
-                    profile_source="profile_logger",
-                    profile_meta=profile_meta,
-                )
-            energy_profile = loaded_profile
-            duration_minutes = loaded_duration
-            profile_slot_minutes = loaded_slot_minutes
-            profile_source = "profile_logger"
+                estimated_runtime = logger_runtime.get_estimated_runtime_minutes(effective_program_key)
+                if estimated_runtime is not None:
+                    duration_minutes = estimated_runtime
+                    energy_profile = None
+                    profile_slot_minutes = None
+                    profile_source = "estimated_runtime"
+                    profile_meta = {
+                        "entity_id": profile_logger_entity,
+                        "program_key": effective_program_key,
+                        "program_name": program_display_name_used,
+                        "estimated_runtime_minutes": estimated_runtime,
+                    }
+                else:
+                    result = self._build_no_candidate_result(load_reason)
+                    return await self._persist_plan_result(
+                        device_name=device_name,
+                        result=result,
+                        deadline_mode=deadline_mode,
+                        deadline_minutes=deadline_minutes,
+                        latest_start=latest_start,
+                        latest_finish=latest_finish,
+                        max_extra_cost_percent=max_extra_cost_percent,
+                        prefer_earliest=prefer_earliest,
+                        align_start_to_billing_slot=align_start_to_billing_slot,
+                        profile_source="profile_logger",
+                        profile_meta=profile_meta,
+                        program_key_used=program_key_used,
+                        program_display_name_used=program_display_name_used,
+                    )
+            else:
+                energy_profile = loaded_profile
+                duration_minutes = loaded_duration
+                profile_slot_minutes = loaded_slot_minutes
+                profile_source = "profile_logger"
 
         slot_rows = self._slot_dicts_for_optimizer()
         bill_slot = int(billing_slot_minutes or self._detect_billing_slot_minutes(slot_rows))
@@ -496,6 +523,8 @@ class TimelineRuntime:
             align_start_to_billing_slot=align_start_to_billing_slot,
             profile_source=profile_source,
             profile_meta=profile_meta,
+            program_key_used=program_key_used,
+            program_display_name_used=program_display_name_used,
         )
 
     async def _persist_plan_result(
@@ -512,6 +541,8 @@ class TimelineRuntime:
         align_start_to_billing_slot: bool,
         profile_source: str,
         profile_meta: dict[str, Any] | None,
+        program_key_used: str | None,
+        program_display_name_used: str | None,
     ) -> dict[str, Any]:
         device_slug = slugify(device_name)
         entity_id = self.plan_entity_id(device_slug)
@@ -528,6 +559,8 @@ class TimelineRuntime:
             align_start_to_billing_slot=align_start_to_billing_slot,
             profile_source=profile_source,
             profile_meta=profile_meta,
+            program_key_used=program_key_used,
+            program_display_name_used=program_display_name_used,
             timeline_entity_id=self.timeline_entity_id,
             timezone_name=self.timezone,
         )
@@ -627,6 +660,8 @@ class TimelineRuntime:
             align_start_to_billing_slot=bool(payload.get("align_start_to_billing_slot", False)),
             profile_source=profile_source,
             profile_meta=profile_meta,
+            program_key_used=payload.get("program_key_used"),
+            program_display_name_used=payload.get("program_display_name_used"),
         )
 
     def _build_reset_payload(self, device_name: str) -> PlanPayload:
@@ -690,6 +725,8 @@ class TimelineRuntime:
                 align_start_to_billing_slot=bool(payload.get("align_start_to_billing_slot", False)),
                 profile_source=profile_source,
                 profile_meta=profile_meta,
+                program_key_used=payload.get("program_key_used"),
+                program_display_name_used=payload.get("program_display_name_used"),
             )
             _LOGGER.info(
                 "re-optimized plan %s/%s because price coverage extended to %s",
@@ -714,7 +751,7 @@ class TimelineRuntime:
         profile_source = str(payload.get("profile_source", "service_payload"))
         profile_meta = payload.get("profile_meta")
 
-        if profile_source == "profile_logger" and isinstance(profile_meta, dict):
+        if profile_source in {"profile_logger", "estimated_runtime"} and isinstance(profile_meta, dict):
             profile_logger_entity = profile_meta.get("entity_id")
             program_key = profile_meta.get("program_key")
             if isinstance(profile_logger_entity, str) and isinstance(program_key, str):
@@ -747,9 +784,28 @@ class TimelineRuntime:
                             "profile_logger",
                             current_profile_meta,
                         )
+                    estimated_runtime = logger_runtime.get_estimated_runtime_minutes(program_key or implicit_program_key)
+                    if estimated_runtime is not None:
+                        return (
+                            reoptimize_plan_payload(
+                                slots=self._slot_dicts_for_optimizer(),
+                                payload=payload,
+                                timezone_name=self.timezone,
+                                duration_minutes=estimated_runtime,
+                                energy_profile=None,
+                                profile_slot_minutes=None,
+                            ),
+                            "estimated_runtime",
+                            {
+                                "entity_id": profile_logger_entity,
+                                "program_key": program_key or implicit_program_key,
+                                "program_name": payload.get("program_display_name_used"),
+                                "estimated_runtime_minutes": estimated_runtime,
+                            },
+                        )
                     return self._build_no_candidate_result(load_reason), "profile_logger", current_profile_meta
-                return self._build_no_candidate_result("profile_logger_not_found"), "profile_logger", profile_meta
-            return self._build_no_candidate_result("missing_profile_logger_metadata"), "profile_logger", profile_meta
+                return self._build_no_candidate_result("profile_logger_not_found"), profile_source, profile_meta
+            return self._build_no_candidate_result("missing_profile_logger_metadata"), profile_source, profile_meta
 
         return (
             reoptimize_plan_payload(

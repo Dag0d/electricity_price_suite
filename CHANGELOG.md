@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.3.0 - 2026-03-09
+
+### Added
+- Added `manage_estimated_runtime` for profile logger entries so estimated fallback runtimes can be added, deleted, listed, or cleared per `program_key`.
+- Added persisted plan fields `program_key_used` and `program_display_name_used` so automations can execute the exact planned program variant later.
+
+### Changed
+- `optimize_device` now accepts optional `program_display_name` for a compact user-facing variant label such as `Auto 2 [I,D,S]`.
+- When `profile_logger_entity + program_key` is used, the optimizer now falls back from a missing learned profile to a configured estimated runtime for the same program key before returning `no-candidate`.
+- Updated public documentation and service metadata for the new logger runtime management workflow.
+
 ## 1.2.0 - 2026-03-08
 
 ### Added

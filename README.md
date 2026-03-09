@@ -177,6 +177,9 @@ Per-device planning entity:
 
 - State: planned start timestamp (or `unknown`)
 - Attributes: optimization window, duration, profile details, cost result, run metadata
+- Variant-related attributes include:
+  - `program_key_used`
+  - `program_display_name_used`
 
 ### `sensor.<logger_slug>_profile_logger_meta`
 
@@ -198,7 +201,7 @@ All services are in domain `electricity_price_suite`.
 
 - `refresh_timeline`, `inject_slots`, `optimize_device`, `add_source`, `list_sources`, `delete_source` use a timeline target.
 - `manage_plan` and `reoptimize_plan` use one or more plan entity targets.
-- `start_profile_logging`, `finish_profile_logging`, `abort_profile_logging`, `get_consumption_profile`, `reset_consumption_profile`, `delete_consumption_profile` use a profile logger target.
+- `start_profile_logging`, `finish_profile_logging`, `abort_profile_logging`, `get_consumption_profile`, `manage_estimated_runtime`, `reset_consumption_profile`, `delete_consumption_profile` use a profile logger target.
 
 ---
 
@@ -302,6 +305,9 @@ Computes best start for one device using timeline data.
 - `program_key` (required when `profile_logger_entity` is used).
   - Expected: stable program key, for example `auto_2`.
   - Effect: chooses which learned logger profile is used for optimization.
+- `program_display_name` (optional).
+  - Expected: user-facing compact display label, for example `Auto 2 [I,D,S]`.
+  - Effect: persists a readable variant label on the plan without changing the technical `program_key`.
 - `align_start_to_billing_slot` (optional, default `false`).
   - Expected: boolean.
   - Effect: candidate starts are forced to billing boundaries.
@@ -338,6 +344,13 @@ Computes best start for one device using timeline data.
 - `best_cost`: computed optimization cost or `null`.
 - `reason`: explanatory reason for `no-candidate`.
 - `requested_latest_start`: the originally requested latest-start boundary before any truncation by missing price data.
+
+When `profile_logger_entity + program_key` is used, optimization tries sources in this order:
+
+1. learned profile from the selected logger
+2. estimated runtime configured on that logger for the same `program_key`
+
+If neither exists, the optimizer returns `no-candidate` with a specific reason.
 
 #### Common `reason` values
 
@@ -447,6 +460,33 @@ Returns either the list of known programs, or one profile payload.
 - `desired_slot_minutes` (optional).
   - Resamples the profile when the requested slot length is an integer multiple or divisor of the stored slot length.
 - `debug` (optional).
+
+### `manage_estimated_runtime`
+
+Adds, deletes, lists, or clears estimated fallback runtimes for a profile logger.
+
+#### Inputs
+
+- `target` (required).
+- `mode` (required).
+  - Expected: `add | delete | list | clear`.
+- `items` (required for `add`).
+  - Expected: mapping of `program_key -> duration_minutes`.
+- `program_key` (required for `delete`).
+  - Expected: one normalized program key.
+
+#### Typical use
+
+```yaml
+action: electricity_price_suite.manage_estimated_runtime
+target:
+  entity_id: sensor.dishwasher_profile_logger_meta
+data:
+  mode: add
+  items:
+    auto_2: 180
+    auto_2_i_d_s: 140
+```
 
 ### `reset_consumption_profile`
 

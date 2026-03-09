@@ -81,6 +81,8 @@ class PlanPayload(TypedDict):
     profile_used: list[float]
     profile_source: str
     profile_meta: dict[str, Any] | None
+    program_key_used: str | None
+    program_display_name_used: str | None
     requested_latest_start: str | None
     window_truncated_by_data: bool
     price_coverage_end_at_compute: str | None

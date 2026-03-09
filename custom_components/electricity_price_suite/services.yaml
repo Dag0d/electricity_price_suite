@@ -244,6 +244,12 @@ optimize_device:
       example: "auto_2"
       selector:
         text: {}
+    program_display_name:
+      required: false
+      description: Optional display name stored with the plan, for example Auto 2 [I,D,S]. This does not change the technical program key.
+      example: "Auto 2 [I,D,S]"
+      selector:
+        text: {}
     align_start_to_billing_slot:
       required: false
       description: If true, candidate starts are restricted to billing slot boundaries.
@@ -424,6 +430,37 @@ get_consumption_profile:
       example: "false"
       selector:
         boolean: {}
+
+manage_estimated_runtime:
+  name: Manage estimated runtime
+  description: Add, delete, list, or clear estimated fallback runtimes for one profile logger.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    mode:
+      required: true
+      description: Management mode. Use add, delete, list, or clear.
+      example: "add"
+      selector:
+        select:
+          options:
+            - "add"
+            - "delete"
+            - "list"
+            - "clear"
+    items:
+      required: false
+      description: Mapping of program_key to duration_minutes used in add mode.
+      example: "{\"auto_2\": 180, \"auto_2_i_d_s\": 140}"
+      selector:
+        object: {}
+    program_key:
+      required: false
+      description: Program key to remove in delete mode.
+      example: "auto_2_i_d_s"
+      selector:
+        text: {}
 
 reset_consumption_profile:
   name: Reset consumption profile

@@ -235,6 +235,10 @@
         "latest_finish": {
           "name": "Latest finish (ISO)",
           "description": "Expert override for absolute latest allowed finish datetime (ISO). Internally converted to a derived latest start."
+        },
+        "program_display_name": {
+          "name": "Program display name",
+          "description": "Optional compact display label persisted with the plan, for example Auto 2 [I,D,S]. This does not change the technical program key."
         }
       }
     },
@@ -411,6 +415,24 @@
         "id": {
           "name": "Source ID",
           "description": "Source id to remove."
+        }
+      }
+    },
+    "manage_estimated_runtime": {
+      "name": "Manage estimated runtime",
+      "description": "Add, delete, list, or clear estimated fallback runtimes for a profile logger.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "Management mode: add, delete, list, or clear."
+        },
+        "items": {
+          "name": "Items",
+          "description": "Mapping of program_key to duration_minutes used for add mode."
+        },
+        "program_key": {
+          "name": "Program key",
+          "description": "Program key to remove in delete mode."
         }
       }
     }

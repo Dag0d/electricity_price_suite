@@ -235,6 +235,10 @@
         "latest_finish": {
           "name": "Spätestes Ende (ISO)",
           "description": "Experten-Override für den absolut spätesten erlaubten Endzeitpunkt (ISO-Zeitstempel). Intern wird daraus ein spätester Start abgeleitet."
+        },
+        "program_display_name": {
+          "name": "Programm-Anzeigename",
+          "description": "Optionaler kompakter Anzeigename, der mit dem Plan gespeichert wird, zum Beispiel Auto 2 [I,D,S]. Der technische Programmschlüssel bleibt unverändert."
         }
       }
     },
@@ -411,6 +415,24 @@
         "id": {
           "name": "Quellen-ID",
           "description": "Zu löschende Quellen-ID."
+        }
+      }
+    },
+    "manage_estimated_runtime": {
+      "name": "Geschätzte Laufzeit verwalten",
+      "description": "Geschätzte Fallback-Laufzeiten für einen Profil-Logger hinzufügen, löschen, auflisten oder komplett leeren.",
+      "fields": {
+        "mode": {
+          "name": "Modus",
+          "description": "Verwaltungsmodus: add, delete, list oder clear."
+        },
+        "items": {
+          "name": "Einträge",
+          "description": "Mapping von program_key zu duration_minutes für den add-Modus."
+        },
+        "program_key": {
+          "name": "Programmschlüssel",
+          "description": "Programmschlüssel, der im delete-Modus entfernt werden soll."
         }
       }
     }

@@ -139,6 +139,7 @@ class ProfileLoggerRuntime:
                 "max_power_kw": round(self.max_power_kw, 6),
                 "max_delta_kwh": round(self.max_delta_kwh, 6),
                 "known_programs": sorted(self._data.get("profiles", {}).keys()),
+                "estimated_runtimes": dict(self._data.get("estimated_runtimes", {})),
             }
         )
         return meta
@@ -303,6 +304,142 @@ class ProfileLoggerRuntime:
             "internal_slot_minutes": int(profile.get("slot_minutes", self.slot_minutes)),
             "internal_slot_count": len(profile.get("slots_kwh", [])),
         }
+
+    def get_estimated_runtime_minutes(self, program_key: str | None) -> float | None:
+        """Return one configured estimated runtime for a program key."""
+
+        normalized_program = normalize_program_key(program_key)
+        if not normalized_program:
+            return None
+        raw = self._data.get("estimated_runtimes", {}).get(normalized_program)
+        try:
+            duration = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return duration if duration > 0 else None
+
+    def get_program_display_name(self, program_key: str | None) -> str | None:
+        """Return the current display name for one program key."""
+
+        normalized_program = normalize_program_key(program_key)
+        if not normalized_program:
+            return None
+        profile = self._data.get("profiles", {}).get(normalized_program)
+        if isinstance(profile, dict) and isinstance(profile.get("program_name"), str):
+            return profile["program_name"]
+        return display_program_name(normalized_program)
+
+    async def async_manage_estimated_runtime(
+        self,
+        *,
+        mode: str,
+        items: dict[str, Any] | None = None,
+        program_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Add, delete, list, or clear estimated runtimes for this logger."""
+
+        async with self._lock:
+            estimated = self._data.setdefault("estimated_runtimes", {})
+            if mode == "list":
+                return {
+                    "ok": True,
+                    "logger_id": self.entry.entry_id,
+                    "entity_id": self.meta_entity_id,
+                    "estimated_runtimes": dict(sorted(estimated.items())),
+                    "count": len(estimated),
+                }
+
+            if mode == "clear":
+                removed = len(estimated)
+                estimated.clear()
+                await self._store.async_save(self._data)
+                self._notify_state()
+                return {
+                    "ok": True,
+                    "mode": "clear",
+                    "logger_id": self.entry.entry_id,
+                    "entity_id": self.meta_entity_id,
+                    "cleared": removed,
+                }
+
+            if mode == "delete":
+                normalized_program = normalize_program_key(program_key)
+                if not normalized_program:
+                    return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
+                deleted = estimated.pop(normalized_program, None)
+                if deleted is None:
+                    return {
+                        "ok": False,
+                        "code": "estimated_runtime_not_found",
+                        "message": "Estimated runtime was not found",
+                        "entity_id": self.meta_entity_id,
+                        "program_key": normalized_program,
+                    }
+                await self._store.async_save(self._data)
+                self._notify_state()
+                return {
+                    "ok": True,
+                    "mode": "delete",
+                    "logger_id": self.entry.entry_id,
+                    "entity_id": self.meta_entity_id,
+                    "program_key": normalized_program,
+                }
+
+            if mode == "add":
+                if not isinstance(items, dict) or not items:
+                    return {
+                        "ok": False,
+                        "code": "missing_items",
+                        "message": "items is required for add mode",
+                        "entity_id": self.meta_entity_id,
+                    }
+                added: dict[str, float] = {}
+                for raw_key, raw_duration in items.items():
+                    normalized_program = normalize_program_key(str(raw_key))
+                    if not normalized_program:
+                        return {
+                            "ok": False,
+                            "code": "invalid_program_key",
+                            "message": "One or more program keys are invalid",
+                            "entity_id": self.meta_entity_id,
+                        }
+                    try:
+                        duration = float(raw_duration)
+                    except (TypeError, ValueError):
+                        return {
+                            "ok": False,
+                            "code": "invalid_duration_minutes",
+                            "message": "Estimated runtime values must be positive numbers",
+                            "entity_id": self.meta_entity_id,
+                            "program_key": normalized_program,
+                        }
+                    if duration <= 0:
+                        return {
+                            "ok": False,
+                            "code": "invalid_duration_minutes",
+                            "message": "Estimated runtime values must be positive numbers",
+                            "entity_id": self.meta_entity_id,
+                            "program_key": normalized_program,
+                        }
+                    estimated[normalized_program] = duration
+                    added[normalized_program] = duration
+                await self._store.async_save(self._data)
+                self._notify_state()
+                return {
+                    "ok": True,
+                    "mode": "add",
+                    "logger_id": self.entry.entry_id,
+                    "entity_id": self.meta_entity_id,
+                    "items": dict(sorted(added.items())),
+                    "count": len(estimated),
+                }
+
+            return {
+                "ok": False,
+                "code": "invalid_mode",
+                "message": "mode must be one of add, delete, list, clear",
+                "entity_id": self.meta_entity_id,
+            }
 
     def get_profile_sensor_payload(self, program_key: str) -> dict[str, Any] | None:
         """Return one UI-friendly profile payload for sensor state and attributes."""
@@ -521,6 +658,7 @@ class ProfileLoggerRuntime:
                 "error_reason": None,
             },
             "profiles": {},
+            "estimated_runtimes": {},
             "active_run": None,
         }
 
