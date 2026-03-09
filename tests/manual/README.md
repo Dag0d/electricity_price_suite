@@ -141,9 +141,9 @@ This will create:
 
 - The logger tests use the helper-backed template sensor, so every change to `input_number.electricity_price_suite_logger_total_kwh` becomes a deterministic energy reading.
 - After writing to the helper, the automation waits `5` seconds before any read-dependent logger action. That delay is intentional.
-- `7_start_missing_program_error` should create a logger error and a persistent notification because the runtime receives no `program_key`.
+- `7_start_missing_program_error` should move the logger into an error state because the runtime receives no `program_key`.
 - `8_start_auto_1_and_abort` should leave no committed profile update behind.
-- `9_finish_wrong_program_rolls_back` should trigger a rollback and a persistent notification.
+- `9_finish_wrong_program_rolls_back` should trigger a rollback and set an error state on the logger.
 - Logger run lifecycle tests now use `manage_profile_run` with `mode=start|finish|abort`.
 - `5_get_profile_auto_1` and `6_get_profile_auto_1_resampled_5` create a persistent notification containing the returned service payload so you can inspect it directly.
 - These two tests now use `manage_profile` with `mode=get`.

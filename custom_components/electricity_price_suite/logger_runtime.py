@@ -31,7 +31,6 @@ from .const import (
     DEFAULT_AUTO_CREATE_PROGRAMS,
     DEFAULT_MAX_POWER_KW,
     DEFAULT_SLOT_MINUTES,
-    DOMAIN,
     ENTRY_TYPE_PROFILE_LOGGER,
     ERROR_ABORTED,
     ERROR_ALREADY_RUNNING,
@@ -754,81 +753,13 @@ class ProfileLoggerRuntime:
         self._cancel_next_sample()
         self._set_meta(STATE_ERROR, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, error_reason=reason)
         await self._store.async_save(self._data)
-        await self._async_notify_error(reason, self._error_message(reason))
         self._notify_state()
 
     async def _async_fail_start(self, code: str, message: str) -> LoggerServiceResult:
         self._set_meta(STATE_ERROR, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, error_reason=code)
         await self._store.async_save(self._data)
-        await self._async_notify_error(code, message)
         self._notify_state()
         return self._error(code, message)
-
-    async def _async_notify_error(self, reason: str, message: str) -> None:
-        await self.hass.services.async_call(
-            "persistent_notification",
-            "create",
-            {
-                "title": self._notification_title(),
-                "message": f"{message}\n\n{self._notification_reason_label()}: {reason}",
-                "notification_id": f"{DOMAIN}_{self.entry.entry_id}_error",
-            },
-            blocking=False,
-        )
-
-    def _error_message(self, reason: str) -> str:
-        base_reason = str(reason).split(":", 1)[0]
-        lang = self._language()
-        messages = {
-            "de": {
-                ERROR_ALREADY_RUNNING: "Ein Lauf wurde gestartet, obwohl bereits ein Lauf aktiv war.",
-                ERROR_PROGRAM_MISSING: "Es wurde kein Programmschluessel uebergeben.",
-                ERROR_PROGRAM_BLOCKED: "Das angeforderte Programm ist durch die Konfiguration blockiert.",
-                ERROR_PROFILE_NOT_FOUND: "Das angeforderte Profil existiert nicht.",
-                ERROR_ENERGY_ENTITY_INVALID: "Die konfigurierte Energie-Entity ist ungueltig.",
-                ERROR_ENERGY_STATE_CLASS_INVALID: "Die Energie-Entity meldet nicht mehr state_class total_increasing.",
-                ERROR_ENERGY_UNAVAILABLE: "Die Energie-Entity ist aktuell nicht verfuegbar.",
-                ERROR_ENERGY_COUNTER_DECREASED: "Der Energiezaehler ist rueckwaerts gelaufen. Der Lauf wurde abgebrochen.",
-                ERROR_MAX_DELTA_EXCEEDED: "Das gemessene Delta ueberschreitet die konfigurierte Maximalleistung fuer diesen Slot.",
-                ERROR_DELAY_EXCEEDED: "Die Messung kam zu spaet. Der Lauf wurde abgebrochen.",
-                "restart_recovery": "Der vorherige Lauf konnte nach dem Neustart nicht wiederhergestellt werden.",
-                "invalid_next_sample_at": "Der gespeicherte Zeitstempel fuer die naechste Messung ist ungueltig.",
-                ERROR_PROGRAM_MISMATCH_FINISH: "Finish wurde mit einem anderen Programm als dem aktiven Lauf aufgerufen.",
-            },
-            "en": {
-                ERROR_ALREADY_RUNNING: "A run was started while another run was already active.",
-                ERROR_PROGRAM_MISSING: "No program key was provided.",
-                ERROR_PROGRAM_BLOCKED: "The requested program is blocked by configuration.",
-                ERROR_PROFILE_NOT_FOUND: "The requested profile does not exist.",
-                ERROR_ENERGY_ENTITY_INVALID: "The configured energy entity is invalid.",
-                ERROR_ENERGY_STATE_CLASS_INVALID: "The energy entity no longer reports state_class total_increasing.",
-                ERROR_ENERGY_UNAVAILABLE: "The energy entity is currently unavailable.",
-                ERROR_ENERGY_COUNTER_DECREASED: "The energy counter went backwards and the run was aborted.",
-                ERROR_MAX_DELTA_EXCEEDED: "The measured delta exceeds the configured maximum power for this slot.",
-                ERROR_DELAY_EXCEEDED: "Sampling happened too late and the run was aborted.",
-                "restart_recovery": "The previous run could not be recovered after restart.",
-                "invalid_next_sample_at": "The stored next sample timestamp was invalid.",
-                ERROR_PROGRAM_MISMATCH_FINISH: "Finish was called with a different program than the active run.",
-            },
-        }
-        localized = messages.get(lang, messages["en"])
-        if base_reason in localized:
-            return localized[base_reason]
-        if lang == "de":
-            return "Der Logger ist in einen Fehlerzustand gewechselt."
-        return "The logger entered an error state."
-
-    def _notification_title(self) -> str:
-        if self._language() == "de":
-            return f"{self.name} - Verbrauchsprofil-Logger"
-        return f"{self.name} - Consumption Profile Logger"
-
-    def _language(self) -> str:
-        language = getattr(self.hass.config, "language", "en") or "en"
-        return str(language).split("-", 1)[0].lower()
-
-    def _notification_reason_label(self) -> str:
-        return "Grund" if self._language() == "de" else "Reason"
 
     def _set_meta(self, state: str, **attrs: Any) -> None:
         self._data["meta"] = {"state": state, **attrs}

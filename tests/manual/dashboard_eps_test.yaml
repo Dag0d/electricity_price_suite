@@ -243,4 +243,4 @@ views:
               - The logger automation waits 5 seconds after helper writes before any read-dependent action
               - Logger run lifecycle tests use `manage_profile_run` with mode-based actions
               - `manage_profile` get-mode test results are written into persistent notifications
-              - Runtime errors such as missing program key or wrong finish program should also create persistent notifications
+              - Runtime errors should be visible on the logger state and `error_reason` attributes

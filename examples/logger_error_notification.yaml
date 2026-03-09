@@ -1,0 +1,42 @@
+alias: Example - Logger Error Notification
+description: >
+  Sends a notification when a profile logger enters the error state. Replace the
+  example entity IDs and notify service with your own setup.
+mode: restart
+triggers:
+  - trigger: state
+    entity_id: sensor.example_device_profile_logger_meta
+    to: error
+conditions: []
+actions:
+  - variables:
+      logger_name: >
+        {{ state_attr('sensor.example_device_profile_logger_meta', 'friendly_name')
+           or 'Example Device Profile Logger' }}
+      error_reason: >
+        {{ state_attr('sensor.example_device_profile_logger_meta', 'error_reason')
+           or 'unknown_error' }}
+      active_program: >
+        {{ state_attr('sensor.example_device_profile_logger_meta', 'active_program')
+           or 'unknown_program' }}
+      started_at: >
+        {{ state_attr('sensor.example_device_profile_logger_meta', 'started_at')
+           or 'n/a' }}
+  - action: notify.mobile_app_example_phone
+    data:
+      title: "{{ logger_name }}"
+      message: >-
+        Logger entered error state.
+        reason={{ error_reason }},
+        active_program={{ active_program }},
+        started_at={{ started_at }}
+  - action: persistent_notification.create
+    data:
+      title: "{{ logger_name }} Error"
+      message: >-
+        The logger entity `sensor.example_device_profile_logger_meta` entered the
+        `error` state.
+
+        error_reason: `{{ error_reason }}`
+        active_program: `{{ active_program }}`
+        started_at: `{{ started_at }}`

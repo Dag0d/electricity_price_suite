@@ -1,0 +1,46 @@
+alias: Example - Plan No Candidate Notification
+description: >
+  Sends a notification when a plan entity ends up without a valid candidate.
+  Replace the example entity IDs and notify service with your own setup.
+mode: restart
+triggers:
+  - trigger: state
+    entity_id: sensor.example_timeline_plan_example_device
+conditions:
+  - condition: template
+    value_template: >
+      {{ trigger.to_state is not none and
+         trigger.to_state.state in ['unknown', 'unavailable']
+         or state_attr('sensor.example_timeline_plan_example_device', 'status') == 'no-candidate' }}
+actions:
+  - variables:
+      plan_entity: sensor.example_timeline_plan_example_device
+      plan_name: >
+        {{ state_attr(plan_entity, 'friendly_name') or 'Example Plan' }}
+      status: >
+        {{ state_attr(plan_entity, 'status') or 'unknown' }}
+      reason: >
+        {{ state_attr(plan_entity, 'reason') or 'unknown_reason' }}
+      timeline_entity: >
+        {{ state_attr(plan_entity, 'timeline_entity') or 'unknown_timeline' }}
+      requested_latest_start: >
+        {{ state_attr(plan_entity, 'requested_latest_start') or 'n/a' }}
+  - action: notify.mobile_app_example_phone
+    data:
+      title: "{{ plan_name }}"
+      message: >-
+        No valid plan candidate found.
+        status={{ status }},
+        reason={{ reason }},
+        timeline={{ timeline_entity }},
+        requested_latest_start={{ requested_latest_start }}
+  - action: persistent_notification.create
+    data:
+      title: "{{ plan_name }} No Candidate"
+      message: >-
+        The plan entity `{{ plan_entity }}` has no valid candidate.
+
+        status: `{{ status }}`
+        reason: `{{ reason }}`
+        timeline_entity: `{{ timeline_entity }}`
+        requested_latest_start: `{{ requested_latest_start }}`

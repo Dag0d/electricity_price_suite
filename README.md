@@ -80,6 +80,27 @@ When a logger profile is used, the optimizer reads it directly from the internal
 - Separate plan management service for reset/delete lifecycle actions
 - Shared suite helpers for datetime parsing/formatting, profile resampling, logger program-key normalization, and input validation
 
+## Notifications
+
+The integration no longer creates logger error notifications on its own.
+
+Instead, it exposes the relevant machine-readable state for Home Assistant automations:
+
+- logger state via `sensor.<logger_slug>_profile_logger_meta`
+- logger error code via the `error_reason` attribute
+- plan status and `reason` via `sensor.<timeline_slug>_plan_<device_slug>`
+
+This keeps notification policy outside the integration:
+
+- choose your own language
+- choose your own channels
+- decide which error cases should notify and which should stay silent
+
+Generic automation examples are available in:
+
+- `examples/logger_error_notification.yaml`
+- `examples/plan_no_candidate_notification.yaml`
+
 ## Internal Structure
 
 The integration keeps the external feature set stable, but the runtime internals are split by responsibility:

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.1 - 2026-03-09
+
+### Changed
+- Removed built-in logger persistent notifications from the integration runtime. Logger failures now stay available through entity state and `error_reason`, so notification policy can be handled entirely in Home Assistant automations.
+- Added generic notification automation examples under `examples/` for logger error reporting and plan `no-candidate` reporting.
+- Updated manual test documentation to reflect that logger error conditions are now inspected via state and attributes instead of integration-created notifications.
+
 ## 2.0.0 - 2026-03-09
 
 ### Changed
