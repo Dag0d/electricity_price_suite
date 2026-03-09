@@ -113,28 +113,69 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     def _write_timeline_entities(runtime: TimelineRuntime) -> None:
         runtime.write_state_entities()
 
-    async def _resolve_timeline(call: ServiceCall) -> TimelineRuntime:
+    def _get_single_target_entity(call: ServiceCall, error_message: str) -> str:
         raw = call.data.get("entity_id")
         if raw is None:
-            raise HomeAssistantError("target with one timeline entity is required")
+            raise HomeAssistantError(error_message)
         entity_ids = [raw] if isinstance(raw, str) else list(raw)
         if len(entity_ids) != 1:
-            raise HomeAssistantError("exactly one timeline target entity is required")
-        runtime = resolve_timeline_runtime(hass.data[DOMAIN], entity_ids[0])
+            raise HomeAssistantError(error_message)
+        return entity_ids[0]
+
+    def _get_target_entities(call: ServiceCall, error_message: str) -> list[str]:
+        raw = call.data.get("entity_id")
+        if raw is None:
+            raise HomeAssistantError(error_message)
+        entity_ids = [raw] if isinstance(raw, str) else list(raw)
+        if not entity_ids:
+            raise HomeAssistantError(error_message)
+        return entity_ids
+
+    def _build_source_from_service_call(call: ServiceCall) -> dict[str, Any]:
+        source_type = call.data["source_type"]
+        source = {
+            "id": call.data["id"],
+            "type": source_type,
+            "priority": call.data.get("priority", 9999),
+            "enabled": call.data["enabled"],
+            "slot_mapping": {
+                "time_key": call.data["time_key"],
+                "price_key": call.data["price_key"],
+            },
+        }
+        if source_type == "entity_attribute":
+            if not call.data.get("source_entity_id") or not call.data.get("attribute"):
+                raise HomeAssistantError("entity_attribute requires source_entity_id and attribute")
+            source["entity_id"] = call.data["source_entity_id"]
+            source["attribute"] = call.data["attribute"]
+            return source
+
+        if not call.data.get("action") or not call.data.get("response_path"):
+            raise HomeAssistantError("entity_action requires action and response_path")
+        source["action"] = call.data["action"]
+        source["response_path"] = call.data["response_path"]
+        source["request_payload"] = call.data["request_payload"]
+        source["inject_time_window"] = call.data["inject_time_window"]
+        source["start_key"] = call.data["start_key"]
+        source["end_key"] = call.data["end_key"]
+        source["time_format"] = call.data["time_format"]
+        source["timezone"] = hass.config.time_zone
+        if call.data.get("source_entity_id"):
+            source["entity_id"] = call.data["source_entity_id"]
+        return source
+
+    async def _resolve_timeline(call: ServiceCall) -> TimelineRuntime:
+        entity_id = _get_single_target_entity(call, "exactly one timeline target entity is required")
+        runtime = resolve_timeline_runtime(hass.data[DOMAIN], entity_id)
         if runtime is None:
-            raise HomeAssistantError(f"unknown timeline target: {entity_ids[0]}")
+            raise HomeAssistantError(f"unknown timeline target: {entity_id}")
         return runtime
 
     async def _resolve_logger(call: ServiceCall) -> tuple[ProfileLoggerRuntime, str | None]:
-        raw = call.data.get("entity_id")
-        if raw is None:
-            raise HomeAssistantError("target with one logger entity is required")
-        entity_ids = [raw] if isinstance(raw, str) else list(raw)
-        if len(entity_ids) != 1:
-            raise HomeAssistantError("exactly one logger target entity is required")
-        runtime, implicit_program_key = resolve_logger_runtime(hass.data[DOMAIN], entity_ids[0])
+        entity_id = _get_single_target_entity(call, "exactly one logger target entity is required")
+        runtime, implicit_program_key = resolve_logger_runtime(hass.data[DOMAIN], entity_id)
         if runtime is None:
-            raise HomeAssistantError(f"unknown logger target: {entity_ids[0]}")
+            raise HomeAssistantError(f"unknown logger target: {entity_id}")
         return runtime, implicit_program_key
 
     async def handle_refresh(call: ServiceCall) -> dict[str, Any]:
@@ -186,12 +227,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     async def handle_manage_plan(call: ServiceCall) -> dict[str, Any]:
         mode = call.data["mode"]
-        raw = call.data.get("entity_id")
-        if raw is None:
-            raise HomeAssistantError("target with one or more plan entities is required")
-        target_entities = [raw] if isinstance(raw, str) else list(raw)
-        if not target_entities:
-            raise HomeAssistantError("target with one or more plan entities is required")
+        target_entities = _get_target_entities(call, "target with one or more plan entities is required")
         managed: list[dict[str, Any]] = []
         for entity_id in target_entities:
             resolved = resolve_plan_target(hass.data[DOMAIN], entity_id)
@@ -224,27 +260,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             raise HomeAssistantError("id is required for mode=add")
         if not call.data.get("source_type"):
             raise HomeAssistantError("source_type is required for mode=add")
-        source_type = call.data["source_type"]
-        source = {"id": call.data["id"], "type": source_type, "priority": call.data.get("priority", 9999), "enabled": call.data["enabled"], "slot_mapping": {"time_key": call.data["time_key"], "price_key": call.data["price_key"]}}
-        if source_type == "entity_attribute":
-            if not call.data.get("source_entity_id") or not call.data.get("attribute"):
-                raise HomeAssistantError("entity_attribute requires source_entity_id and attribute")
-            source["entity_id"] = call.data["source_entity_id"]
-            source["attribute"] = call.data["attribute"]
-        else:
-            if not call.data.get("action") or not call.data.get("response_path"):
-                raise HomeAssistantError("entity_action requires action and response_path")
-            source["action"] = call.data["action"]
-            source["response_path"] = call.data["response_path"]
-            source["request_payload"] = call.data["request_payload"]
-            source["inject_time_window"] = call.data["inject_time_window"]
-            source["start_key"] = call.data["start_key"]
-            source["end_key"] = call.data["end_key"]
-            source["time_format"] = call.data["time_format"]
-            source["timezone"] = hass.config.time_zone
-            if call.data.get("source_entity_id"):
-                source["entity_id"] = call.data["source_entity_id"]
-        return await runtime.async_add_source(source)
+        return await runtime.async_add_source(_build_source_from_service_call(call))
 
     async def handle_manage_profile_run(call: ServiceCall) -> dict[str, Any]:
         runtime, implicit_program_key = await _resolve_logger(call)

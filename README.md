@@ -87,7 +87,7 @@ The integration no longer creates logger error notifications on its own.
 Instead, it exposes the relevant machine-readable state for Home Assistant automations:
 
 - logger state via `sensor.<logger_slug>_profile_logger_meta`
-- logger error code via the `error_reason` attribute
+- logger reason via the `reason` attribute
 - plan status and `reason` via `sensor.<timeline_slug>_plan_<device_slug>`
 
 This keeps notification policy outside the integration:
@@ -100,6 +100,21 @@ Generic automation examples are available in:
 
 - `examples/logger_error_notification.yaml`
 - `examples/plan_no_candidate_notification.yaml`
+
+## Examples
+
+The repository includes small generic examples that you can adapt to your own setup:
+
+- `examples/logger_error_notification.yaml`
+  - watches a logger meta sensor
+  - reads `reason`, `active_program`, and `started_at`
+  - shows how to build your own notification policy
+- `examples/plan_no_candidate_notification.yaml`
+  - watches a plan entity
+  - reacts to `status=no-candidate`
+  - reports `reason`, `timeline_entity`, and `requested_latest_start`
+
+Replace the placeholder entity IDs and notify services in those examples with your own Home Assistant entities.
 
 ## Internal Structure
 

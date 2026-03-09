@@ -2,10 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.2 - 2026-03-09
+
+### Changed
+- Standardized the integration-wide error contract on `reason` instead of mixing `code`, `message`, and `error_reason`.
+- Logger service responses now use `reason`, matching timeline and plan service/debug responses.
+- Logger meta entities now expose `reason` instead of `error_reason`, so entity state/attribute semantics are consistent across the suite.
+- Expanded the tracked manual test harness to cover the consolidated `manage_sources` and `manage_profile` flows more completely.
+
 ## 2.0.1 - 2026-03-09
 
 ### Changed
-- Removed built-in logger persistent notifications from the integration runtime. Logger failures now stay available through entity state and `error_reason`, so notification policy can be handled entirely in Home Assistant automations.
+- Removed built-in logger persistent notifications from the integration runtime. Logger failures now stay available through entity state and `reason`, so notification policy can be handled entirely in Home Assistant automations.
 - Added generic notification automation examples under `examples/` for logger error reporting and plan `no-candidate` reporting.
 - Updated manual test documentation to reflect that logger error conditions are now inspected via state and attributes instead of integration-created notifications.
 

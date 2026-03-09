@@ -61,12 +61,11 @@ from .profile_utils import resample_profile_slots, service_profile_result_from_e
 @dataclass(slots=True)
 class LoggerServiceResult:
     ok: bool
-    code: str
-    message: str
+    reason: str
     data: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
-        return {"ok": self.ok, "code": self.code, "message": self.message, **self.data}
+        return {"ok": self.ok, "reason": self.reason, **self.data}
 
 
 class ProfileLoggerRuntime:
@@ -279,8 +278,7 @@ class ProfileLoggerRuntime:
             return {"ok": True, **(result.payload or {})}
         return {
             "ok": False,
-            "code": result.code,
-            "message": result.message,
+            "reason": result.reason,
             **(result.payload or {}),
         }
 
@@ -364,13 +362,12 @@ class ProfileLoggerRuntime:
             if mode == "delete":
                 normalized_program = normalize_program_key(program_key)
                 if not normalized_program:
-                    return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
+                    return self._error(ERROR_PROGRAM_MISSING)
                 deleted = estimated.pop(normalized_program, None)
                 if deleted is None:
                     return {
                         "ok": False,
-                        "code": "estimated_runtime_not_found",
-                        "message": "Estimated runtime was not found",
+                        "reason": "estimated_runtime_not_found",
                         "entity_id": self.meta_entity_id,
                         "program_key": normalized_program,
                     }
@@ -388,8 +385,7 @@ class ProfileLoggerRuntime:
                 if not isinstance(items, dict) or not items:
                     return {
                         "ok": False,
-                        "code": "missing_items",
-                        "message": "items is required for add mode",
+                        "reason": "missing_items",
                         "entity_id": self.meta_entity_id,
                     }
                 added: dict[str, float] = {}
@@ -398,8 +394,7 @@ class ProfileLoggerRuntime:
                     if not normalized_program:
                         return {
                             "ok": False,
-                            "code": "invalid_program_key",
-                            "message": "One or more program keys are invalid",
+                            "reason": "invalid_program_key",
                             "entity_id": self.meta_entity_id,
                         }
                     try:
@@ -407,16 +402,14 @@ class ProfileLoggerRuntime:
                     except (TypeError, ValueError):
                         return {
                             "ok": False,
-                            "code": "invalid_duration_minutes",
-                            "message": "Estimated runtime values must be positive numbers",
+                            "reason": "invalid_duration_minutes",
                             "entity_id": self.meta_entity_id,
                             "program_key": normalized_program,
                         }
                     if duration <= 0:
                         return {
                             "ok": False,
-                            "code": "invalid_duration_minutes",
-                            "message": "Estimated runtime values must be positive numbers",
+                            "reason": "invalid_duration_minutes",
                             "entity_id": self.meta_entity_id,
                             "program_key": normalized_program,
                         }
@@ -435,8 +428,7 @@ class ProfileLoggerRuntime:
 
             return {
                 "ok": False,
-                "code": "invalid_mode",
-                "message": "mode must be one of add, delete, list, clear",
+                "reason": "invalid_mode",
                 "entity_id": self.meta_entity_id,
             }
 
@@ -462,20 +454,20 @@ class ProfileLoggerRuntime:
         async with self._lock:
             normalized_program = normalize_program_key(program_key)
             if not normalized_program:
-                return await self._async_fail_start(ERROR_PROGRAM_MISSING, "Program key is required")
+                return await self._async_fail_start(ERROR_PROGRAM_MISSING)
             if self._data.get("active_run"):
                 await self._async_rollback_locked(ERROR_ALREADY_RUNNING)
-                return self._error(ERROR_ALREADY_RUNNING, "A run is already active")
+                return self._error(ERROR_ALREADY_RUNNING)
             if not self._is_program_allowed(normalized_program):
-                return await self._async_fail_start(ERROR_PROGRAM_BLOCKED, f"Program '{normalized_program}' is not allowed")
+                return await self._async_fail_start(ERROR_PROGRAM_BLOCKED)
             current_energy, energy_error = self._read_energy_kwh()
             if energy_error is not None or current_energy is None:
-                return await self._async_fail_start(energy_error or ERROR_ENERGY_ENTITY_INVALID, self._error_message(energy_error or ERROR_ENERGY_ENTITY_INVALID))
+                return await self._async_fail_start(energy_error or ERROR_ENERGY_ENTITY_INVALID)
             profile = self._data["profiles"].get(normalized_program)
             program_created = False
             if profile is None:
                 if not self.config.get(CONF_AUTO_CREATE_PROGRAMS, DEFAULT_AUTO_CREATE_PROGRAMS):
-                    return await self._async_fail_start(ERROR_PROFILE_NOT_FOUND, f"Unknown program '{normalized_program}'")
+                    return await self._async_fail_start(ERROR_PROFILE_NOT_FOUND)
                 profile = self._new_profile(normalized_program)
                 self._data["profiles"][normalized_program] = profile
                 program_created = True
@@ -501,41 +493,41 @@ class ProfileLoggerRuntime:
                 last_sample_at=now.isoformat(),
                 next_sample_at=next_sample_at.isoformat(),
                 samples_taken=0,
-                error_reason=None,
+                reason=None,
             )
             await self._store.async_save(self._data)
             self._schedule_next_sample(next_sample_at)
             self._notify_state()
             if program_created:
                 self._notify_program(normalized_program)
-            return LoggerServiceResult(True, "started", "Run started", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program, "program_name": profile["program_name"]})
+            return LoggerServiceResult(True, "started", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program, "program_name": profile["program_name"]})
 
     async def async_finish(self, program_key: str | None) -> LoggerServiceResult:
         async with self._lock:
             active = self._data.get("active_run")
             if not active:
-                return self._error(ERROR_NOT_RUNNING, "No active run")
+                return self._error(ERROR_NOT_RUNNING)
             normalized_program = normalize_program_key(program_key)
             if not normalized_program:
                 await self._async_rollback_locked(ERROR_PROGRAM_MISSING)
-                return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
+                return self._error(ERROR_PROGRAM_MISSING)
             if normalized_program != active["program_key"]:
                 await self._async_rollback_locked(ERROR_PROGRAM_MISMATCH_FINISH)
-                return self._error(ERROR_PROGRAM_MISMATCH_FINISH, "Finish program does not match active run")
+                return self._error(ERROR_PROGRAM_MISMATCH_FINISH)
             current_energy, energy_error = self._read_energy_kwh()
             if energy_error is not None or current_energy is None:
                 await self._async_rollback_locked(energy_error or ERROR_ENERGY_ENTITY_INVALID)
-                return self._error(energy_error or ERROR_ENERGY_ENTITY_INVALID, self._error_message(energy_error or ERROR_ENERGY_ENTITY_INVALID))
+                return self._error(energy_error or ERROR_ENERGY_ENTITY_INVALID)
             profile = self._data["profiles"][normalized_program]
             prev_runs = int(active["snapshot_profile"].get("run_count", 0))
             new_runs = prev_runs + 1
             raw_delta = current_energy - float(active["last_total_kwh"])
             if raw_delta < 0:
                 await self._async_rollback_locked(ERROR_ENERGY_COUNTER_DECREASED)
-                return self._error(ERROR_ENERGY_COUNTER_DECREASED, self._error_message(ERROR_ENERGY_COUNTER_DECREASED))
+                return self._error(ERROR_ENERGY_COUNTER_DECREASED)
             if raw_delta > self.max_delta_kwh:
                 await self._async_rollback_locked(f"{ERROR_MAX_DELTA_EXCEEDED}:{raw_delta:.5f}>{self.max_delta_kwh:.5f}")
-                return self._error(ERROR_MAX_DELTA_EXCEEDED, self._error_message(ERROR_MAX_DELTA_EXCEEDED))
+                return self._error(ERROR_MAX_DELTA_EXCEEDED)
             delta = raw_delta
             slot_index = int(active["samples_taken"])
             self._mean_into(profile["slots_kwh"], slot_index, delta, prev_runs, new_runs)
@@ -547,35 +539,35 @@ class ProfileLoggerRuntime:
             profile["last_updated"] = dt_util.utcnow().isoformat()
             self._data["active_run"] = None
             self._cancel_next_sample()
-            self._set_meta(STATE_IDLE, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, error_reason=None)
+            self._set_meta(STATE_IDLE, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, reason=None)
             await self._store.async_save(self._data)
             self._notify_state()
-            return LoggerServiceResult(True, "finished", "Run finished", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program, "avg_total_kwh": self.get_profile_summary(normalized_program)["avg_total_kwh"]})
+            return LoggerServiceResult(True, "finished", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program, "avg_total_kwh": self.get_profile_summary(normalized_program)["avg_total_kwh"]})
 
     async def async_abort(self, reason: str | None = None, program_key: str | None = None) -> LoggerServiceResult:
         async with self._lock:
             active = self._data.get("active_run")
             if not active:
-                return self._error(ERROR_NOT_RUNNING, "No active run")
+                return self._error(ERROR_NOT_RUNNING)
             if program_key is not None:
                 normalized_program = normalize_program_key(program_key)
                 if normalized_program and normalized_program != active["program_key"]:
                     reason = "program_mismatch"
             normalized_reason = reason if reason in ALLOWED_ABORT_REASONS else ERROR_ABORTED
             await self._async_rollback_locked(normalized_reason)
-            return LoggerServiceResult(True, "aborted", "Run aborted and rolled back", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "reason": normalized_reason})
+            return LoggerServiceResult(True, "aborted", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "reason": normalized_reason})
 
     async def async_reset_profile(self, program_key: str | None) -> LoggerServiceResult:
         async with self._lock:
             normalized_program = normalize_program_key(program_key)
             if not normalized_program:
-                return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
+                return self._error(ERROR_PROGRAM_MISSING)
             active = self._data.get("active_run")
             if active and active["program_key"] == normalized_program:
-                return self._error(ERROR_ALREADY_RUNNING, "Cannot reset the active profile while a run is active")
+                return self._error(ERROR_ALREADY_RUNNING)
             profile = self._data.get("profiles", {}).get(normalized_program)
             if profile is None:
-                return self._error(ERROR_PROFILE_NOT_FOUND, f"Profile '{normalized_program}' was not found")
+                return self._error(ERROR_PROFILE_NOT_FOUND)
             profile["run_count"] = 0
             profile["slot_minutes"] = self.slot_minutes
             profile["slots_kwh"] = []
@@ -583,23 +575,23 @@ class ProfileLoggerRuntime:
             profile["last_updated"] = dt_util.utcnow().isoformat()
             await self._store.async_save(self._data)
             self._notify_state()
-            return LoggerServiceResult(True, "reset", "Profile reset", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program})
+            return LoggerServiceResult(True, "reset", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program})
 
     async def async_delete_profile(self, program_key: str | None) -> LoggerServiceResult:
         async with self._lock:
             normalized_program = normalize_program_key(program_key)
             if not normalized_program:
-                return self._error(ERROR_PROGRAM_MISSING, "Program key is required")
+                return self._error(ERROR_PROGRAM_MISSING)
             active = self._data.get("active_run")
             if active and active["program_key"] == normalized_program:
-                return self._error(ERROR_ALREADY_RUNNING, "Cannot delete the active profile while a run is active")
+                return self._error(ERROR_ALREADY_RUNNING)
             if normalized_program not in self._data.get("profiles", {}):
-                return self._error(ERROR_PROFILE_NOT_FOUND, f"Profile '{normalized_program}' was not found")
+                return self._error(ERROR_PROFILE_NOT_FOUND)
             del self._data["profiles"][normalized_program]
             await self._store.async_save(self._data)
             self._notify_state()
             self._notify_program_removed(normalized_program)
-            return LoggerServiceResult(True, "deleted", "Profile deleted", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program})
+            return LoggerServiceResult(True, "deleted", {"logger_id": self.entry.entry_id, "entity_id": self.meta_entity_id, "program_key": normalized_program})
 
     async def async_handle_scheduled_sample(self, *_: Any) -> None:
         async with self._lock:
@@ -638,7 +630,7 @@ class ProfileLoggerRuntime:
             active["last_total_kwh"] = current_energy
             active["last_sample_at"] = dt_util.utcnow().isoformat()
             active["next_sample_at"] = next_due.isoformat()
-            self._set_meta(STATE_RUNNING, active_program=profile["program_name"], run_id=active["run_id"], slot_minutes=self.slot_minutes, started_at=active["started_at"], last_sample_at=active["last_sample_at"], next_sample_at=active["next_sample_at"], samples_taken=active["samples_taken"], error_reason=None)
+            self._set_meta(STATE_RUNNING, active_program=profile["program_name"], run_id=active["run_id"], slot_minutes=self.slot_minutes, started_at=active["started_at"], last_sample_at=active["last_sample_at"], next_sample_at=active["next_sample_at"], samples_taken=active["samples_taken"], reason=None)
             await self._store.async_save(self._data)
             self._schedule_next_sample(next_due)
             self._notify_state()
@@ -654,7 +646,7 @@ class ProfileLoggerRuntime:
                 "last_sample_at": None,
                 "next_sample_at": None,
                 "samples_taken": None,
-                "error_reason": None,
+                "reason": None,
             },
             "profiles": {},
             "estimated_runtimes": {},
@@ -751,15 +743,15 @@ class ProfileLoggerRuntime:
             self._data["profiles"][active["program_key"]] = deepcopy(active["snapshot_profile"])
         self._data["active_run"] = None
         self._cancel_next_sample()
-        self._set_meta(STATE_ERROR, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, error_reason=reason)
+        self._set_meta(STATE_ERROR, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, reason=reason)
         await self._store.async_save(self._data)
         self._notify_state()
 
-    async def _async_fail_start(self, code: str, message: str) -> LoggerServiceResult:
-        self._set_meta(STATE_ERROR, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, error_reason=code)
+    async def _async_fail_start(self, reason: str) -> LoggerServiceResult:
+        self._set_meta(STATE_ERROR, active_program=None, run_id=None, slot_minutes=self.slot_minutes, started_at=None, last_sample_at=dt_util.utcnow().isoformat(), next_sample_at=None, samples_taken=None, reason=reason)
         await self._store.async_save(self._data)
         self._notify_state()
-        return self._error(code, message)
+        return self._error(reason)
 
     def _set_meta(self, state: str, **attrs: Any) -> None:
         self._data["meta"] = {"state": state, **attrs}
@@ -788,5 +780,5 @@ class ProfileLoggerRuntime:
         for listener in list(self._program_removed_listeners):
             listener(program_key)
 
-    def _error(self, code: str, message: str) -> LoggerServiceResult:
-        return LoggerServiceResult(ok=False, code=code, message=message, data={"entity_id": self.meta_entity_id})
+    def _error(self, reason: str) -> LoggerServiceResult:
+        return LoggerServiceResult(ok=False, reason=reason, data={"entity_id": self.meta_entity_id})

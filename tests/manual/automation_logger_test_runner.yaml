@@ -183,3 +183,87 @@ action:
             data:
               mode: delete
               program_key: auto_1
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "12_get_program_list"
+        sequence:
+          - action: electricity_price_suite.manage_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              mode: get
+            response_variable: logger_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Logger Test - Program list
+              message: "{{ logger_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "13_add_estimated_runtimes"
+        sequence:
+          - action: electricity_price_suite.manage_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              mode: add_estimated_runtimes
+              items:
+                auto_1: 60
+                auto_1_i: 75
+            response_variable: logger_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Logger Test - Estimated runtimes added
+              message: "{{ logger_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "14_list_estimated_runtimes"
+        sequence:
+          - action: electricity_price_suite.manage_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              mode: list_estimated_runtimes
+            response_variable: logger_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Logger Test - Estimated runtimes
+              message: "{{ logger_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "15_delete_estimated_runtime_auto_1_i"
+        sequence:
+          - action: electricity_price_suite.manage_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              mode: delete_estimated_runtime
+              program_key: auto_1_i
+            response_variable: logger_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Logger Test - Estimated runtime deleted
+              message: "{{ logger_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_logger_test_case
+            state: "16_clear_estimated_runtimes"
+        sequence:
+          - action: electricity_price_suite.manage_profile
+            target:
+              entity_id: sensor.test_logger_profile_logger_meta
+            data:
+              mode: clear_estimated_runtimes
+            response_variable: logger_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Logger Test - Estimated runtimes cleared
+              message: "{{ logger_result | tojson(indent=2) }}"

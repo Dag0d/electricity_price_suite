@@ -254,3 +254,76 @@ action:
               max_extra_cost_percent: 0
               prefer_earliest: true
               align_start_to_billing_slot: true
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "14_add_test_source"
+        sequence:
+          - action: electricity_price_suite.manage_sources
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              mode: add
+              id: test_attribute_source
+              source_type: entity_attribute
+              priority: 7
+              source_entity_id: sensor.test_timeline_pricing_meta
+              attribute: data
+              time_key: start_time
+              price_key: price_per_kwh
+            response_variable: eps_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Timeline Test - Source added
+              message: "{{ eps_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "15_list_sources"
+        sequence:
+          - action: electricity_price_suite.manage_sources
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              mode: list
+            response_variable: eps_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Timeline Test - Source IDs
+              message: "{{ eps_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "16_get_test_source_config"
+        sequence:
+          - action: electricity_price_suite.manage_sources
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              mode: list
+              id: test_attribute_source
+            response_variable: eps_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Timeline Test - Source config
+              message: "{{ eps_result | tojson(indent=2) }}"
+
+      - conditions:
+          - condition: state
+            entity_id: input_select.electricity_price_suite_test_case
+            state: "17_delete_test_source"
+        sequence:
+          - action: electricity_price_suite.manage_sources
+            target:
+              entity_id: sensor.test_timeline_pricing_meta
+            data:
+              mode: delete
+              id: test_attribute_source
+            response_variable: eps_result
+          - action: persistent_notification.create
+            data:
+              title: EPS Timeline Test - Source deleted
+              message: "{{ eps_result | tojson(indent=2) }}"

@@ -22,8 +22,7 @@ class ServiceProfileResult:
 
     ok: bool
     payload: dict[str, Any] | None = None
-    code: str | None = None
-    message: str | None = None
+    reason: str | None = None
 
 
 def resample_profile_slots(
@@ -110,18 +109,14 @@ def service_profile_result_from_export(
     if payload is not None:
         return ServiceProfileResult(ok=True, payload={"profile": payload})
     if runtime_data is None:
-        return ServiceProfileResult(ok=False, code="profile_not_found", message="Profile not found")
+        return ServiceProfileResult(ok=False, reason="profile_not_found")
     if desired_slot_minutes is not None:
         return ServiceProfileResult(
             ok=False,
-            code="invalid_desired_slot_minutes",
-            message=(
-                "requested slot length is not resampleable "
-                "(must be an integer multiple or divisor of the stored slot length)"
-            ),
+            reason="invalid_desired_slot_minutes",
             payload={
                 "requested_slot_minutes": desired_slot_minutes,
                 "stored_slot_minutes": runtime_data["internal_slot_minutes"],
             },
         )
-    return ServiceProfileResult(ok=False, code="profile_not_found", message="Profile not found")
+    return ServiceProfileResult(ok=False, reason="profile_not_found")

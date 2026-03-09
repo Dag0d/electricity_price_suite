@@ -181,8 +181,8 @@ views:
                 name: Samples taken
               - type: attribute
                 entity: sensor.test_logger_profile_logger_meta
-                attribute: error_reason
-                name: Error reason
+                attribute: reason
+                name: Reason
               - type: attribute
                 entity: sensor.test_logger_profile_logger_meta
                 attribute: known_programs
@@ -235,7 +235,7 @@ views:
             content: |
               **Timeline harness**
               - Uses `input_select.electricity_price_suite_test_case` and `input_button.electricity_price_suite_run_test`
-              - Covers refresh, inject, optimizer, reset, delete, and boundary regression behavior
+              - Covers refresh, inject, optimizer, manage_plan, manage_sources, and boundary regression behavior
 
               **Logger harness**
               - Uses `input_select.electricity_price_suite_logger_test_case` and `input_button.electricity_price_suite_run_logger_test`
@@ -243,4 +243,5 @@ views:
               - The logger automation waits 5 seconds after helper writes before any read-dependent action
               - Logger run lifecycle tests use `manage_profile_run` with mode-based actions
               - `manage_profile` get-mode test results are written into persistent notifications
-              - Runtime errors should be visible on the logger state and `error_reason` attributes
+              - Additional logger tests cover program listing and full estimated-runtime management
+              - Runtime errors should be visible on the logger state and `reason` attribute

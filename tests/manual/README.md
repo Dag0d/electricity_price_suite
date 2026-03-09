@@ -64,6 +64,10 @@ Expected entity IDs:
 - `11_plan_delete`
 - `12_refresh_primary_overwrite`
 - `13_optimizer_boundary_edge_case`
+- `14_add_test_source`
+- `15_list_sources`
+- `16_get_test_source_config`
+- `17_delete_test_source`
 
 ### Logger helpers
 
@@ -92,6 +96,11 @@ Create `input_number.electricity_price_suite_logger_total_kwh` with roughly thes
 - `9_finish_wrong_program_rolls_back`
 - `10_reset_profile_auto_1`
 - `11_delete_profile_auto_1`
+- `12_get_program_list`
+- `13_add_estimated_runtimes`
+- `14_list_estimated_runtimes`
+- `15_delete_estimated_runtime_auto_1_i`
+- `16_clear_estimated_runtimes`
 
 ## Template Sensor to Create
 
@@ -136,6 +145,10 @@ This will create:
   - waits until the next realistic quarter boundary plus 15 seconds,
   - and then runs the optimizer.
 - The helper `timer.electricity_price_suite_edge_case_wait` shows the remaining wait time until the optimization fires.
+- `14_add_test_source` adds one deterministic attribute source definition that reads the `data` attribute from `sensor.test_timeline_pricing_meta`.
+- `15_list_sources` should show the configured source IDs.
+- `16_get_test_source_config` should return the normalized stored config for `test_attribute_source`.
+- `17_delete_test_source` should remove that test source again.
 
 ## Logger Notes
 
@@ -149,3 +162,8 @@ This will create:
 - These two tests now use `manage_profile` with `mode=get`.
 - `10_reset_profile_auto_1` uses `manage_profile` with `mode=reset`.
 - `11_delete_profile_auto_1` uses `manage_profile` with `mode=delete`.
+- `12_get_program_list` returns the known programs for the logger entry.
+- `13_add_estimated_runtimes` stores example fallback runtimes for `auto_1` and `auto_1_i`.
+- `14_list_estimated_runtimes` should return those estimated runtimes.
+- `15_delete_estimated_runtime_auto_1_i` removes only the `auto_1_i` fallback.
+- `16_clear_estimated_runtimes` removes all estimated runtimes from the logger.
