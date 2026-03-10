@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.3.0 - 2026-03-10
+
+### Changed
+- Switched the project to a Home Assistant style versioning scheme: `YYYY.M.patch`.
+- This release starts the new scheme at `2026.3.0`.
+- All previous feature and API changes remain documented in the earlier changelog entries below.
+
 ## 2.0.2 - 2026-03-09
 
 ### Changed
