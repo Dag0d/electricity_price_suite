@@ -338,6 +338,23 @@ class ProfileLoggerRuntime:
         async with self._lock:
             estimated = self._data.setdefault("estimated_runtimes", {})
             if mode == "list":
+                normalized_program = normalize_program_key(program_key)
+                if normalized_program:
+                    duration = estimated.get(normalized_program)
+                    if duration is None:
+                        return {
+                            "ok": False,
+                            "reason": "estimated_runtime_not_found",
+                            "entity_id": self.meta_entity_id,
+                            "program_key": normalized_program,
+                        }
+                    return {
+                        "ok": True,
+                        "logger_id": self.entry.entry_id,
+                        "entity_id": self.meta_entity_id,
+                        "program_key": normalized_program,
+                        "estimated_runtime_minutes": float(duration),
+                    }
                 return {
                     "ok": True,
                     "logger_id": self.entry.entry_id,

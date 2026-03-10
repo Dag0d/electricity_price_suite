@@ -380,7 +380,7 @@ manage_profile:
             - "clear_estimated_runtimes"
     program_key:
       required: false
-      description: Program key used for one profile operation. Only used for mode=get, reset, delete, delete_estimated_runtime.
+      description: Program key used for one profile operation. Only used for mode=get, reset, delete, list_estimated_runtimes, delete_estimated_runtime.
       example: "auto_2"
       selector:
         text: {}

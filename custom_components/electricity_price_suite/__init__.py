@@ -299,7 +299,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 raise HomeAssistantError("items is required for mode=add_estimated_runtimes")
             return await runtime.async_manage_estimated_runtime(mode="add", items=call.data.get("items"))
         if mode == "list_estimated_runtimes":
-            return await runtime.async_manage_estimated_runtime(mode="list")
+            return await runtime.async_manage_estimated_runtime(mode="list", program_key=program_key)
         if mode == "delete_estimated_runtime":
             if not program_key:
                 raise HomeAssistantError("program_key is required for mode=delete_estimated_runtime")

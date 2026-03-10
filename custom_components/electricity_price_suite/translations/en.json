@@ -262,7 +262,7 @@
         },
         "program_key": {
           "name": "Program key",
-          "description": "Program key used for one profile operation. Only used for mode=get, reset, delete, delete_estimated_runtime."
+          "description": "Program key used for one profile operation. Only used for mode=get, reset, delete, list_estimated_runtimes, delete_estimated_runtime."
         },
         "desired_slot_minutes": {
           "name": "Desired slot minutes",

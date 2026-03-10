@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.3.1 - 2026-03-10
+
+### Changed
+- `manage_profile` with `mode=list_estimated_runtimes` now supports an optional `program_key` filter and can return one exact estimated runtime directly.
+- Updated service metadata, translations, and README documentation for the filtered estimated-runtime lookup workflow.
+
 ## 2026.3.0 - 2026-03-10
 
 ### Changed

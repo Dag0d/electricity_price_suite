@@ -457,7 +457,7 @@ Returns, resets, deletes, or manages fallback estimated runtimes for a profile l
   - Expected: `get | reset | delete | add_estimated_runtimes | list_estimated_runtimes | delete_estimated_runtime | clear_estimated_runtimes`.
   - Effect: chooses which profile-management action is executed.
 - `program_key` (optional).
-  - Only used for mode=`get`, `reset`, `delete`, `delete_estimated_runtime`.
+  - Only used for mode=`get`, `reset`, `delete`, `list_estimated_runtimes`, `delete_estimated_runtime`.
   - If omitted for mode=`get` on the meta sensor, the response returns the known program list.
 - `desired_slot_minutes` (optional).
   - Only used for mode=`get`.
@@ -496,9 +496,15 @@ data:
   - `count`
   - `estimated_runtimes`
 - mode=`list_estimated_runtimes`
-  - `status`: `ok`
-  - `count`
-  - `estimated_runtimes`
+  - without `program_key`:
+    - `ok`: `true`
+    - `count`
+    - `estimated_runtimes`
+  - with `program_key`:
+    - `ok`: `true | false`
+    - `program_key`
+    - `estimated_runtime_minutes`
+    - `reason`: `estimated_runtime_not_found` when missing
 - mode=`delete_estimated_runtime`
   - `status`: `ok | not_found`
   - `program_key`
