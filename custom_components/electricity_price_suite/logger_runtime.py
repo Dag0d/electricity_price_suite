@@ -467,7 +467,12 @@ class ProfileLoggerRuntime:
             "last_updated": summary["last_updated"],
         }
 
-    async def async_start(self, program_key: str | None) -> LoggerServiceResult:
+    async def async_start(
+        self,
+        program_key: str | None,
+        *,
+        program_display_name: str | None = None,
+    ) -> LoggerServiceResult:
         async with self._lock:
             normalized_program = normalize_program_key(program_key)
             if not normalized_program:
@@ -486,8 +491,12 @@ class ProfileLoggerRuntime:
                 if not self.config.get(CONF_AUTO_CREATE_PROGRAMS, DEFAULT_AUTO_CREATE_PROGRAMS):
                     return await self._async_fail_start(ERROR_PROFILE_NOT_FOUND)
                 profile = self._new_profile(normalized_program)
+                if program_display_name:
+                    profile["program_name"] = program_display_name
                 self._data["profiles"][normalized_program] = profile
                 program_created = True
+            elif program_display_name and profile.get("program_name") != program_display_name:
+                profile["program_name"] = program_display_name
             now = dt_util.utcnow()
             next_sample_at = now + timedelta(minutes=self.slot_minutes)
             self._data["active_run"] = {

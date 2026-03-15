@@ -363,6 +363,10 @@
         "program_key": {
           "name": "Programmschlüssel",
           "description": "Programmschlüssel für die gewählte Lauf-Aktion. Nur verwendet für mode=start, finish, abort."
+        },
+        "program_display_name": {
+          "name": "Programm-Anzeigename",
+          "description": "Menschenlesbarer Programmname, der bei neu angelegten oder aktualisierten Profilen gespeichert wird. Nur verwendet für mode=start."
         }
       }
     }

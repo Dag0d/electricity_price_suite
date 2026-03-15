@@ -87,6 +87,7 @@ LOGGER_MANAGE_RUN_SCHEMA = vol.Schema({
     vol.Required("mode"): vol.In(["start", "finish", "abort"]),
     vol.Optional("reason", default=ABORT_REASON_MANUAL): vol.In(ALLOWED_ABORT_REASONS),
     vol.Optional("program_key"): cv.string,
+    vol.Optional("program_display_name"): cv.string,
 })
 LOGGER_MANAGE_PROFILE_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
@@ -267,7 +268,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         mode = call.data["mode"]
         program_key = call.data.get("program_key") or implicit_program_key
         if mode == "start":
-            result = await runtime.async_start(program_key)
+            result = await runtime.async_start(
+                program_key,
+                program_display_name=call.data.get("program_display_name"),
+            )
         elif mode == "finish":
             result = await runtime.async_finish(program_key)
         elif mode == "abort":

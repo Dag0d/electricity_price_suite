@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.3.2 - 2026-03-15
+
+### Changed
+- `manage_profile_run mode=start` now accepts an optional `program_display_name` so logger-created profiles can store the exact friendly name supplied by automations instead of falling back to the generic normalized program label.
+- This allows HA-driven program variants such as `Night Wash [D]` or `Night Wash [I,D,S]` to remain consistent between plan metadata and newly created logger profiles.
+
 ## 2026.3.1 - 2026-03-10
 
 ### Changed

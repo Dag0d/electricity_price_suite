@@ -363,6 +363,10 @@
         "program_key": {
           "name": "Program key",
           "description": "Program key for the selected run operation. Only used for mode=start, finish, abort."
+        },
+        "program_display_name": {
+          "name": "Program display name",
+          "description": "Human-readable program name to store for newly created or updated profiles. Only used for mode=start."
         }
       }
     }

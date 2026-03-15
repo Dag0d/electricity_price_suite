@@ -356,6 +356,12 @@ manage_profile_run:
       example: "auto_2"
       selector:
         text: {}
+    program_display_name:
+      required: false
+      description: Human-readable program name to store for newly created or updated profiles. Only used for mode=start.
+      example: "Auto 2 [I,D]"
+      selector:
+        text: {}
 
 manage_profile:
   name: Manage profile

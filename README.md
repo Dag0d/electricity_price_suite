@@ -442,6 +442,10 @@ Starts, finishes, or aborts a logger run for the selected profile logger.
 - `program_key` (optional when target is already a profile sensor).
   - Expected: program key string.
   - Effect: program to start, finish, or guard during abort.
+- `program_display_name` (optional).
+  - Only used for mode=`start`.
+  - Expected: human-readable display name such as `Auto 2 [I,D]`.
+  - Effect: stored as the profile name when a new profile is created or an existing profile name should be refreshed.
 - `reason` (optional).
   - Only used for mode=`abort`.
   - Expected: one of `manual_abort`, `program_mismatch`, `restart_recovery`, `sampling_delay_exceeded`.
