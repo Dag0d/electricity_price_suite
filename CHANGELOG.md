@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.0 - 2026-04-26
+
+### Fixed
+- Fixed optimizer candidate threshold handling for negative electricity prices when `prefer_earliest` is enabled.
+- Prevented planning failures that previously surfaced as `StopIteration` when the cheapest candidate had a negative total cost.
+- Added a regression test covering negative-price planning.
+
 ## 2026.3.2 - 2026-03-15
 
 ### Changed

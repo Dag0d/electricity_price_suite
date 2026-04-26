@@ -240,3 +240,34 @@ def test_optimizer_reports_all_candidates_in_past():
 
     assert result.status == "no-candidate"
     assert result.reason == "all_candidates_in_past"
+
+
+def test_optimizer_handles_negative_prices_with_prefer_earliest():
+    slots = [
+        {"start_time": "2026-04-26T10:00:00+02:00", "price_per_kwh": -0.3665},
+        {"start_time": "2026-04-26T10:15:00+02:00", "price_per_kwh": -0.3700},
+        {"start_time": "2026-04-26T10:30:00+02:00", "price_per_kwh": -0.3000},
+    ]
+
+    result = optimize_runtime(
+        slots=slots,
+        timezone_name="Europe/Berlin",
+        billing_slot_minutes=15,
+        duration_minutes=15,
+        energy_profile=None,
+        profile_slot_minutes=None,
+        max_extra_cost_percent=1.0,
+        prefer_earliest=True,
+        start_mode="now",
+        start_in_minutes=0,
+        deadline_mode="none",
+        deadline_minutes=None,
+        latest_start="2026-04-26T10:30:00+02:00",
+        latest_finish=None,
+        align_start_to_billing_slot=True,
+        reference_time="2026-04-26T09:59:00+02:00",
+    )
+
+    assert result.status == "ok"
+    assert result.best_start == "2026-04-26T10:00+02:00"
+    assert result.best_cost == -0.3665

@@ -392,12 +392,13 @@ def optimize_runtime(
         )
 
     min_cost = min(item[1] for item in candidates)
-    threshold = min_cost * (1.0 + (float(max_extra_cost_percent) / 100.0))
+    threshold = min_cost + (abs(min_cost) * (float(max_extra_cost_percent) / 100.0))
+    best_candidate = min(candidates, key=lambda item: item[1])
 
     if prefer_earliest:
-        picked = next(item for item in candidates if item[1] <= threshold)
+        picked = next((item for item in candidates if item[1] <= threshold), best_candidate)
     else:
-        picked = min(candidates, key=lambda item: item[1])
+        picked = best_candidate
 
     best_start_dt = picked[0]
     best_end_dt = best_start_dt + timedelta(minutes=effective_duration)
