@@ -88,6 +88,7 @@ action:
             target:
               entity_id: sensor.test_timeline_pricing_meta
             data:
+              planner_name: Geräteplanung
               device_name: Test Device
               duration_minutes: 30
               start_mode: now
@@ -104,6 +105,7 @@ action:
             target:
               entity_id: sensor.test_timeline_pricing_meta
             data:
+              planner_name: Geräteplanung
               device_name: Test Device
               start_mode: now
               deadline_mode: finish_within
@@ -119,6 +121,7 @@ action:
             target:
               entity_id: sensor.test_timeline_pricing_meta
             data:
+              planner_name: Geräteplanung
               device_name: Test Device
               duration_minutes: 30
               start_mode: now
@@ -134,6 +137,7 @@ action:
             target:
               entity_id: sensor.test_timeline_pricing_meta
             data:
+              planner_name: Geräteplanung
               device_name: Test Device
               duration_minutes: 30
               start_mode: now
@@ -150,6 +154,7 @@ action:
             target:
               entity_id: sensor.test_timeline_pricing_meta
             data:
+              planner_name: Geräteplanung
               device_name: Test Device
               duration_minutes: 15
               start_mode: in
@@ -165,7 +170,7 @@ action:
         sequence:
           - action: electricity_price_suite.manage_plan
             target:
-              entity_id: sensor.test_timeline_plan_test_device
+              entity_id: sensor.test_timeline_gerateplanung_test_device
             data:
               mode: reset
 
@@ -176,7 +181,7 @@ action:
         sequence:
           - action: electricity_price_suite.manage_plan
             target:
-              entity_id: sensor.test_timeline_plan_test_device
+              entity_id: sensor.test_timeline_gerateplanung_test_device
             data:
               mode: delete
 
@@ -242,6 +247,7 @@ action:
             target:
               entity_id: sensor.test_timeline_pricing_meta
             data:
+              planner_name: Geräteplanung
               device_name: Test Device
               energy_profile:
                 - 1

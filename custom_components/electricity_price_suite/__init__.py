@@ -44,6 +44,7 @@ REFRESH_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("sources")
 INJECT_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required(ATTR_SLOTS): [dict], vol.Optional("source_name", default="manual_inject"): cv.string, vol.Optional("source_priority", default=9999): vol.Coerce(int), vol.Optional("is_primary", default=False): cv.boolean, vol.Optional("overwrite", default=False): cv.boolean})
 OPTIMIZE_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
+    vol.Required("planner_name"): cv.string,
     vol.Required("device_name"): cv.string,
     vol.Optional("duration_minutes"): vol.Coerce(float),
     vol.Optional("energy_profile"): [vol.Coerce(float)],
@@ -205,25 +206,29 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             raise HomeAssistantError("program_key is required when profile_logger_entity is set")
         if not profile_logger_entity and call.data.get("duration_minutes") is None and not call.data.get("energy_profile"):
             raise HomeAssistantError("either duration_minutes/energy_profile or profile_logger_entity + program_key is required")
-        response = await runtime.async_optimize_device(
-            device_name=call.data["device_name"],
-            duration_minutes=call.data.get("duration_minutes"),
-            energy_profile=call.data.get("energy_profile"),
-            profile_slot_minutes=call.data.get("profile_slot_minutes"),
-            billing_slot_minutes=call.data.get("billing_slot_minutes"),
-            profile_logger_entity=profile_logger_entity,
-            program_key=program_key,
-            program_display_name=call.data.get("program_display_name"),
-            align_start_to_billing_slot=call.data["align_start_to_billing_slot"],
-            max_extra_cost_percent=call.data["max_extra_cost_percent"],
-            prefer_earliest=call.data["prefer_earliest"],
-            start_mode=call.data["start_mode"],
-            start_in_minutes=call.data["start_in_minutes"],
-            deadline_mode=call.data["deadline_mode"],
-            deadline_minutes=call.data.get("deadline_minutes"),
-            latest_start=call.data.get("latest_start"),
-            latest_finish=call.data.get("latest_finish"),
-        )
+        try:
+            response = await runtime.async_optimize_device(
+                planner_name=call.data["planner_name"],
+                device_name=call.data["device_name"],
+                duration_minutes=call.data.get("duration_minutes"),
+                energy_profile=call.data.get("energy_profile"),
+                profile_slot_minutes=call.data.get("profile_slot_minutes"),
+                billing_slot_minutes=call.data.get("billing_slot_minutes"),
+                profile_logger_entity=profile_logger_entity,
+                program_key=program_key,
+                program_display_name=call.data.get("program_display_name"),
+                align_start_to_billing_slot=call.data["align_start_to_billing_slot"],
+                max_extra_cost_percent=call.data["max_extra_cost_percent"],
+                prefer_earliest=call.data["prefer_earliest"],
+                start_mode=call.data["start_mode"],
+                start_in_minutes=call.data["start_in_minutes"],
+                deadline_mode=call.data["deadline_mode"],
+                deadline_minutes=call.data.get("deadline_minutes"),
+                latest_start=call.data.get("latest_start"),
+                latest_finish=call.data.get("latest_finish"),
+            )
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
         return response
 
     async def handle_manage_plan(call: ServiceCall) -> dict[str, Any]:
@@ -235,13 +240,13 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             if resolved is None:
                 managed.append({"status": "not_found", "plan_entity_id": entity_id, "reason": "plan_not_found"})
                 continue
-            runtime, device_slug = resolved
+            runtime, plan_key = resolved
             if mode == "reoptimize":
-                managed.append(await runtime.async_reoptimize_plan(device_slug=device_slug))
+                managed.append(await runtime.async_reoptimize_plan(plan_key=plan_key))
             else:
                 managed.append(
                     await runtime.async_manage_plan(
-                        device_slug=device_slug,
+                        plan_key=plan_key,
                         reset=(mode == "reset"),
                         delete=(mode == "delete"),
                     )

@@ -34,11 +34,21 @@ def build_no_candidate_result(timezone_name: str, reason: str) -> PlanResult:
     )
 
 
-def build_reset_payload(device_name: str, timeline_entity_id: str, timezone_name: str) -> PlanPayload:
+def build_reset_payload(
+    planner_name: str,
+    planner_slug: str,
+    device_name: str,
+    device_slug: str,
+    timeline_entity_id: str,
+    timezone_name: str,
+) -> PlanPayload:
     """Create the reset payload for a persisted plan entity."""
 
     return {
+        "planner_name": planner_name,
+        "planner_slug": planner_slug,
         "device_name": device_name,
+        "device_slug": device_slug,
         "status": "reset",
         "reason": "manual_reset",
         "best_start": None,
@@ -72,7 +82,10 @@ def build_reset_payload(device_name: str, timeline_entity_id: str, timezone_name
 
 def build_plan_payload(
     *,
+    planner_name: str,
+    planner_slug: str,
     device_name: str,
+    device_slug: str,
     result: PlanResult,
     deadline_mode: str,
     deadline_minutes: float | None,
@@ -91,7 +104,10 @@ def build_plan_payload(
     """Build the persisted plan payload from an optimization result."""
 
     return {
+        "planner_name": planner_name,
+        "planner_slug": planner_slug,
         "device_name": device_name,
+        "device_slug": device_slug,
         "status": result.status,
         "reason": result.reason,
         "best_start": result.best_start,

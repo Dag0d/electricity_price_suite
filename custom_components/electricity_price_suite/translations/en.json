@@ -17,7 +17,8 @@
           "currency": "Currency",
           "cache_retention_days": "Cache retention days",
           "round_decimals": "Round prices to decimals",
-          "enable_current_price_sensor": "Enable current price sensor"
+          "enable_current_price_sensor": "Enable current price sensor",
+          "planner_devices": "Planner devices"
         }
       },
       "profile_logger": {
@@ -98,7 +99,8 @@
           "currency": "Currency",
           "cache_retention_days": "Cache retention days",
           "round_decimals": "Round prices to decimals",
-          "enable_current_price_sensor": "Enable current price sensor"
+          "enable_current_price_sensor": "Enable current price sensor",
+          "planner_devices": "Planner devices"
         }
       },
       "profile_logger": {
@@ -175,6 +177,10 @@
         "device_name": {
           "name": "Device name",
           "description": "Logical device label used to build and persist the plan entity."
+        },
+        "planner_name": {
+          "name": "Planner device",
+          "description": "Configured planner device name within this timeline where the plan entity should be created."
         },
         "duration_minutes": {
           "name": "Duration (minutes)",

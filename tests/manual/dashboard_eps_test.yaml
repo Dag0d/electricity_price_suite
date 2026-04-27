@@ -32,49 +32,49 @@ views:
             heading: Timeline Plan
           - type: entities
             entities:
-              - entity: sensor.test_timeline_plan_test_device
+              - entity: sensor.test_timeline_gerateplanung_test_device
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: status
                 name: Plan status
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: reason
                 name: Reason
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: best_end
                 name: Best end
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: best_cost
                 name: Best cost
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: window_start
                 name: Window start
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: window_end
                 name: Window end
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: requested_latest_start
                 name: Requested latest start
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: window_truncated_by_data
                 name: Window truncated by data
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: max_extra_cost_percent
                 name: Max extra cost percent
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: profile_source
                 name: Profile source
               - type: attribute
-                entity: sensor.test_timeline_plan_test_device
+                entity: sensor.test_timeline_gerateplanung_test_device
                 attribute: computed_at
                 name: Computed at
 

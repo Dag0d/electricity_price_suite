@@ -32,7 +32,7 @@ Per timeline, the integration exposes:
 - `sensor.<timeline_slug>_pricing_meta` (main timeline sensor)
 - `sensor.<timeline_slug>_status` (high-level status state for automations)
 - Optional: `sensor.<timeline_slug>_current_price`
-- Dynamic plan entities: `sensor.<timeline_slug>_plan_<device_slug>`
+- Dynamic plan entities: `sensor.<timeline_slug>_<planner_slug>_<device_slug>`
 
 ### 3) Profile Logger Instance
 
@@ -73,7 +73,7 @@ When a logger profile is used, the optimizer reads it directly from the internal
 - Weighted timeline metrics (including mixed slot durations)
 - Current price sensor (optional)
 - Status sensor with fixed machine-readable states
-- Device plan entity lifecycle: one persistent plan entity per device per timeline
+- Device plan entity lifecycle: one persistent plan entity per device per planner within a timeline
 - Consumption profile logger entries with per-program sensors
 - Fine-grained optimizer (profile slot can be smaller than billing slot)
 - Direct internal profile loading from suite logger entries
@@ -88,7 +88,7 @@ Instead, it exposes the relevant machine-readable state for Home Assistant autom
 
 - logger state via `sensor.<logger_slug>_profile_logger_meta`
 - logger reason via the `reason` attribute
-- plan status and `reason` via `sensor.<timeline_slug>_plan_<device_slug>`
+- plan status and `reason` via `sensor.<timeline_slug>_<planner_slug>_<device_slug>`
 
 This keeps notification policy outside the integration:
 
@@ -207,7 +207,7 @@ Includes attributes like `today_rows`, `tomorrow_rows`, and `last_source_chain_f
 - State: current slot price (rounded)
 - Minimal attributes for current price context
 
-### `sensor.<timeline_slug>_plan_<device_slug>`
+### `sensor.<timeline_slug>_<planner_slug>_<device_slug>`
 
 Per-device planning entity:
 
@@ -320,9 +320,12 @@ Computes best start for one device using timeline data.
 - `target` (required).
   - Expected: exactly one timeline target entity.
   - Effect: optimization uses that timeline's stored slots.
+- `planner_name` (required).
+  - Expected: name of a configured planner device for that timeline, for example `Geräteplanung`.
+  - Effect: selects which planner device should own the resulting plan entity.
 - `device_name` (required).
   - Expected: string.
-  - Effect: identifies plan entity (`sensor.<timeline_slug>_plan_<device_slug>`).
+  - Effect: identifies the per-planner plan entity.
 - `duration_minutes` (optional unless profile source provides duration).
   - Expected: positive number.
   - Effect: runtime length used for cost window.
@@ -374,7 +377,7 @@ Computes best start for one device using timeline data.
 #### Response (typical)
 
 - `status`: `ok | no-candidate`
-- `plan_entity_id`: per-device plan entity id.
+- `plan_entity_id`: per-device per-planner plan entity id.
 - `best_start`: planned start datetime (ISO) or `null`.
 - `best_end`: planned finish datetime (ISO) or `null`.
 - `best_cost`: computed optimization cost or `null`.
@@ -413,7 +416,7 @@ Resets, deletes, or re-optimizes existing plan entities.
 #### Inputs
 
 - `target` (required).
-  - Expected: one or more existing plan entities (`sensor.<timeline_slug>_plan_<device_slug>`).
+  - Expected: one or more existing plan entities (`sensor.<timeline_slug>_<planner_slug>_<device_slug>`).
   - Effect: selected plan entities are managed.
 - `mode` (required).
   - Expected: `reset | delete | reoptimize`.

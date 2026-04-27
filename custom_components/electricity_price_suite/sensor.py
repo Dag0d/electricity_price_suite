@@ -55,10 +55,9 @@ async def _async_setup_timeline_entry(runtime: TimelineRuntime, async_add_entiti
         if stale_entity_id:
             registry.async_remove(stale_entity_id)
     plan_entities: list[SensorEntity] = []
-    for device_slug, payload in runtime.store.get_plans().items():
-        device_name = payload.get("device_name", device_slug)
-        sensor = PlanSensor(runtime, device_slug, device_name, payload)
-        runtime.plan_sensors[device_slug] = sensor
+    for plan_key, payload in runtime.store.get_plans().items():
+        sensor = PlanSensor(runtime, plan_key, payload)
+        runtime.plan_sensors[plan_key] = sensor
         plan_entities.append(sensor)
     async_add_entities([*entities, *plan_entities])
     runtime.timeline_sensor = timeline
@@ -131,13 +130,16 @@ class PlanSensor(BaseSuiteEntity, RestoreEntity):
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_icon = "mdi:clock-time-three"
 
-    def __init__(self, runtime: TimelineRuntime, device_slug: str, device_name: str, payload: dict[str, Any] | None) -> None:
+    def __init__(self, runtime: TimelineRuntime, plan_key: str, payload: dict[str, Any] | None) -> None:
         super().__init__(runtime)
-        self._device_slug = device_slug
-        self._attr_name = f"Plan {device_name}"
-        self._attr_unique_id = f"{runtime.entry.entry_id}_plan_{device_slug}"
+        self._plan_key = plan_key
         self._payload = payload or {}
-        self.entity_id = self.runtime.plan_entity_id(self._device_slug)
+        device_name = str(self._payload.get("device_name", ""))
+        planner_slug = str(self._payload.get("planner_slug", "planner"))
+        device_slug = str(self._payload.get("device_slug", "device"))
+        self._attr_name = device_name
+        self._attr_unique_id = f"{runtime.entry.entry_id}_plan_{plan_key}"
+        self.entity_id = self.runtime.plan_entity_id(planner_slug, device_slug)
 
     @property
     def native_value(self):
@@ -149,6 +151,12 @@ class PlanSensor(BaseSuiteEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return dict(self._payload)
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        planner_name = str(self._payload.get("planner_name", "Planung"))
+        planner_slug = str(self._payload.get("planner_slug", "planung"))
+        return self.runtime.build_plan_device_info(planner_name, planner_slug)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.1 - 2026-04-27
+
+### Changed
+- Added configurable planner devices per timeline and moved plan entities into their own planner devices instead of attaching them directly to the pricing timeline device.
+- Linked planner devices back to their owning timeline device via Home Assistant device hierarchy (`via_device`).
+- `optimize_device` now requires an explicit `planner_name`, so plan placement is always intentional when multiple planner devices exist on one timeline.
+- Updated the plan entity id pattern to `sensor.<timeline_slug>_<planner_slug>_<device_slug>`.
+- Removed the redundant `Plan` prefix from plan entity names so planner devices display only the target device names.
+
 ## 2026.4.0 - 2026-04-26
 
 ### Fixed

@@ -28,16 +28,18 @@ def resolve_timeline_runtime(runtimes: RuntimeMap, target_entity_id: str) -> Tim
 
 
 def resolve_plan_target(runtimes: RuntimeMap, target_entity_id: str) -> tuple[TimelineRuntime, str] | None:
-    """Resolve one plan target to its owning runtime and device slug."""
+    """Resolve one plan target to its owning runtime and plan key."""
 
     for runtime in runtimes.values():
         if getattr(runtime, "entry", None) is None:
             continue
         if runtime.entry.data.get("entry_type", ENTRY_TYPE_TIMELINE) != ENTRY_TYPE_TIMELINE:
             continue
-        for device_slug in runtime.store.get_plans():
-            if runtime.plan_entity_id(device_slug) == target_entity_id:
-                return runtime, device_slug
+        for plan_key, payload in runtime.store.get_plans().items():
+            planner_slug = str(payload.get("planner_slug", ""))
+            device_slug = str(payload.get("device_slug", ""))
+            if planner_slug and device_slug and runtime.plan_entity_id(planner_slug, device_slug) == target_entity_id:
+                return runtime, plan_key
     return None
 
 

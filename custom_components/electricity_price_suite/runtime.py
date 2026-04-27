@@ -20,10 +20,12 @@ from .const import (
     CONF_CACHE_RETENTION_DAYS,
     CONF_CURRENCY,
     CONF_ENABLE_CURRENT_PRICE_SENSOR,
+    CONF_PLANNER_DEVICES,
     CONF_SOURCE_CHAIN,
     CONF_ROUND_DECIMALS,
     DEFAULT_BILLING_SLOT_MINUTES,
     DEFAULT_ENABLE_CURRENT_PRICE_SENSOR,
+    DEFAULT_PLANNER_DEVICES,
     DEFAULT_ROUND_DECIMALS,
     DOMAIN,
 )
@@ -80,6 +82,9 @@ class TimelineRuntime:
         self.source_chain = list(
             entry.options.get(CONF_SOURCE_CHAIN, entry.data.get(CONF_SOURCE_CHAIN, []))
         )
+        self.planner_devices = self._normalize_planner_devices(
+            entry.options.get(CONF_PLANNER_DEVICES, entry.data.get(CONF_PLANNER_DEVICES, DEFAULT_PLANNER_DEVICES))
+        )
         retention = int(
             entry.options.get(
                 CONF_CACHE_RETENTION_DAYS,
@@ -104,11 +109,44 @@ class TimelineRuntime:
             status="no_data",
         )
 
+    def _normalize_planner_devices(self, raw: Any) -> list[str]:
+        items = raw if isinstance(raw, list) else []
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            name = str(item).strip()
+            if not name:
+                continue
+            slug = slugify(name)
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            normalized.append(name)
+        return normalized
+
+    def resolve_planner(self, planner_name: str | None) -> tuple[str, str] | None:
+        name = str(planner_name or "").strip()
+        if not name:
+            return None
+        requested_slug = slugify(name)
+        if not requested_slug:
+            return None
+        for configured_name in self.planner_devices:
+            configured_slug = slugify(configured_name)
+            if configured_name == name or configured_slug == requested_slug:
+                return configured_name, configured_slug
+        return None
+
+    def plan_key(self, planner_slug: str, device_slug: str) -> str:
+        return f"{planner_slug}__{device_slug}"
+
     def _detect_billing_slot_minutes(self, rows: list[dict[str, float | str]]) -> int:
         return detect_billing_slot_minutes(rows, self.timezone, DEFAULT_BILLING_SLOT_MINUTES)
 
     async def async_initialize(self) -> None:
         await self.store.async_load()
+        if self._migrate_legacy_plans():
+            await self.store.async_save()
         if not self.store.get_sources():
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
@@ -127,6 +165,29 @@ class TimelineRuntime:
 
     def register_add_entities(self, add_entities: Any) -> None:
         self._add_entities = add_entities
+
+    def _migrate_legacy_plans(self) -> bool:
+        plans = self.store.get_plans()
+        if not plans:
+            return False
+        changed = False
+        migrated: dict[str, PlanPayload] = {}
+        fallback_planner_name = self.planner_devices[0] if self.planner_devices else "Planung"
+        fallback_planner_slug = slugify(fallback_planner_name)
+        for old_key, payload in list(plans.items()):
+            if payload.get("planner_name") and payload.get("planner_slug") and payload.get("device_slug"):
+                migrated[str(old_key)] = payload
+                continue
+            device_name = str(payload.get("device_name", old_key))
+            device_slug = slugify(str(payload.get("device_slug") or device_name))
+            payload["planner_name"] = fallback_planner_name
+            payload["planner_slug"] = fallback_planner_slug
+            payload["device_slug"] = device_slug
+            migrated[self.plan_key(fallback_planner_slug, device_slug)] = payload
+            changed = True
+        if changed:
+            self.store._data["plans"] = migrated
+        return changed
 
     async def _rebuild_from_store(self) -> None:
         self.latest_stats = self._compute_timeline_stats()
@@ -391,6 +452,7 @@ class TimelineRuntime:
     async def async_optimize_device(
         self,
         *,
+        planner_name: str,
         device_name: str,
         duration_minutes: float | None,
         energy_profile: list[float] | None,
@@ -409,6 +471,10 @@ class TimelineRuntime:
         latest_start: str | None,
         latest_finish: str | None,
     ) -> dict[str, Any]:
+        resolved_planner = self.resolve_planner(planner_name)
+        if resolved_planner is None:
+            raise ValueError(f"unknown planner: {planner_name}")
+        planner_name, planner_slug = resolved_planner
         profile_source = "service_payload"
         profile_meta: dict[str, Any] | None = None
         program_key_used = program_key
@@ -422,6 +488,7 @@ class TimelineRuntime:
             if logger_runtime is None:
                 result = self._build_no_candidate_result("profile_logger_not_found")
                 return await self._persist_plan_result(
+                    planner_name=planner_name,
                     device_name=device_name,
                     result=result,
                     deadline_mode=deadline_mode,
@@ -469,6 +536,7 @@ class TimelineRuntime:
                 else:
                     result = self._build_no_candidate_result(load_reason)
                     return await self._persist_plan_result(
+                        planner_name=planner_name,
                         device_name=device_name,
                         result=result,
                         deadline_mode=deadline_mode,
@@ -512,6 +580,7 @@ class TimelineRuntime:
         )
 
         return await self._persist_plan_result(
+            planner_name=planner_name,
             device_name=device_name,
             result=result,
             deadline_mode=deadline_mode,
@@ -530,6 +599,7 @@ class TimelineRuntime:
     async def _persist_plan_result(
         self,
         *,
+        planner_name: str,
         device_name: str,
         result: PlanResult,
         deadline_mode: str,
@@ -544,11 +614,16 @@ class TimelineRuntime:
         program_key_used: str | None,
         program_display_name_used: str | None,
     ) -> dict[str, Any]:
+        planner_slug = slugify(planner_name)
         device_slug = slugify(device_name)
-        entity_id = self.plan_entity_id(device_slug)
+        plan_key = self.plan_key(planner_slug, device_slug)
+        entity_id = self.plan_entity_id(planner_slug, device_slug)
 
         plan_payload = build_plan_payload(
+            planner_name=planner_name,
+            planner_slug=planner_slug,
             device_name=device_name,
+            device_slug=device_slug,
             result=result,
             deadline_mode=deadline_mode,
             deadline_minutes=deadline_minutes,
@@ -565,14 +640,14 @@ class TimelineRuntime:
             timezone_name=self.timezone,
         )
 
-        self.store.set_plan(device_slug, plan_payload)
+        self.store.set_plan(plan_key, plan_payload)
         await self.store.async_save()
 
-        if device_slug in self.plan_sensors:
-            self.plan_sensors[device_slug].async_update_from_payload(plan_payload)
+        if plan_key in self.plan_sensors:
+            self.plan_sensors[plan_key].async_update_from_payload(plan_payload)
         elif self._add_entities is not None:
-            sensor = self._create_plan_sensor(device_slug, device_name)
-            self.plan_sensors[device_slug] = sensor
+            sensor = self._create_plan_sensor(plan_key, plan_payload)
+            self.plan_sensors[plan_key] = sensor
             self._add_entities([sensor])
 
         return {
@@ -584,24 +659,26 @@ class TimelineRuntime:
             "reason": result.reason,
         }
 
-    async def async_manage_plan(self, *, device_slug: str, reset: bool, delete: bool) -> dict[str, Any]:
+    async def async_manage_plan(self, *, plan_key: str, reset: bool, delete: bool) -> dict[str, Any]:
         plans = self.store.get_plans()
-        existing = plans.get(device_slug)
-        entity_id = self.plan_entity_id(device_slug)
+        existing = plans.get(plan_key)
+        planner_slug = str(existing.get("planner_slug")) if existing else ""
+        device_slug = str(existing.get("device_slug")) if existing else ""
+        entity_id = self.plan_entity_id(planner_slug, device_slug) if existing else None
 
         if existing is None:
             return {
                 "status": "not_found",
-                "plan_entity_id": entity_id,
+                "plan_entity_id": None,
                 "reason": "plan_not_found",
             }
 
         if delete:
-            self.store.delete_plan(device_slug)
+            self.store.delete_plan(plan_key)
             await self.store.async_save()
-            self.plan_sensors.pop(device_slug, None)
+            self.plan_sensors.pop(plan_key, None)
             registry = er.async_get(self.hass)
-            unique_id = f"{self.entry.entry_id}_plan_{device_slug}"
+            unique_id = f"{self.entry.entry_id}_plan_{plan_key}"
             stale_entity = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
             if stale_entity:
                 registry.async_remove(stale_entity)
@@ -611,12 +688,17 @@ class TimelineRuntime:
                 "reason": "manual_delete",
             }
 
-        payload = self._build_reset_payload(str(existing.get("device_name", device_slug)))
-        self.store.set_plan(device_slug, payload)
+        payload = self._build_reset_payload(
+            planner_name=str(existing.get("planner_name", "")),
+            planner_slug=str(existing.get("planner_slug", "")),
+            device_name=str(existing.get("device_name", device_slug)),
+            device_slug=device_slug,
+        )
+        self.store.set_plan(plan_key, payload)
         await self.store.async_save()
 
-        if device_slug in self.plan_sensors:
-            self.plan_sensors[device_slug].async_update_from_payload(payload)
+        if plan_key in self.plan_sensors:
+            self.plan_sensors[plan_key].async_update_from_payload(payload)
 
         return {
             "status": "reset",
@@ -624,15 +706,17 @@ class TimelineRuntime:
             "reason": "manual_reset",
         }
 
-    async def async_reoptimize_plan(self, *, device_slug: str) -> dict[str, Any]:
+    async def async_reoptimize_plan(self, *, plan_key: str) -> dict[str, Any]:
         plans = self.store.get_plans()
-        payload = plans.get(device_slug)
-        entity_id = self.plan_entity_id(device_slug)
+        payload = plans.get(plan_key)
+        planner_slug = str(payload.get("planner_slug")) if payload else ""
+        device_slug = str(payload.get("device_slug")) if payload else ""
+        entity_id = self.plan_entity_id(planner_slug, device_slug) if payload else None
 
         if payload is None:
             return {
                 "status": "not_found",
-                "plan_entity_id": entity_id,
+                "plan_entity_id": None,
                 "reason": "plan_not_found",
             }
 
@@ -645,6 +729,7 @@ class TimelineRuntime:
 
         result, profile_source, profile_meta = self._reoptimize_plan_result(payload)
         return await self._persist_plan_result(
+            planner_name=str(payload.get("planner_name", "")),
             device_name=str(payload.get("device_name", device_slug)),
             result=result,
             deadline_mode=str(payload.get("deadline_mode", "none")),
@@ -664,8 +749,22 @@ class TimelineRuntime:
             program_display_name_used=payload.get("program_display_name_used"),
         )
 
-    def _build_reset_payload(self, device_name: str) -> PlanPayload:
-        return build_reset_payload(device_name, self.timeline_entity_id, self.timezone)
+    def _build_reset_payload(
+        self,
+        *,
+        planner_name: str,
+        planner_slug: str,
+        device_name: str,
+        device_slug: str,
+    ) -> PlanPayload:
+        return build_reset_payload(
+            planner_name,
+            planner_slug,
+            device_name,
+            device_slug,
+            self.timeline_entity_id,
+            self.timezone,
+        )
 
     def _build_no_candidate_result(self, reason: str) -> PlanResult:
         return build_no_candidate_result(self.timezone, reason)
@@ -685,7 +784,7 @@ class TimelineRuntime:
         tz = ZoneInfo(self.timezone)
         now = datetime.now(tz)
 
-        for device_slug, payload in list(self.store.get_plans().items()):
+        for plan_key, payload in list(self.store.get_plans().items()):
             if payload.get("status") != "ok":
                 continue
             if not bool(payload.get("window_truncated_by_data")):
@@ -706,11 +805,12 @@ class TimelineRuntime:
             try:
                 result, profile_source, profile_meta = self._reoptimize_plan_result(payload)
             except Exception as err:  # pragma: no cover - defensive
-                _LOGGER.debug("plan re-optimize failed for %s/%s: %s", self.timeline_slug, device_slug, err, exc_info=True)
+                _LOGGER.debug("plan re-optimize failed for %s/%s: %s", self.timeline_slug, plan_key, err, exc_info=True)
                 continue
 
             await self._persist_plan_result(
-                device_name=str(payload.get("device_name", device_slug)),
+                planner_name=str(payload.get("planner_name", "")),
+                device_name=str(payload.get("device_name", payload.get("device_slug", plan_key))),
                 result=result,
                 deadline_mode=str(payload.get("deadline_mode", "none")),
                 deadline_minutes=(
@@ -731,7 +831,7 @@ class TimelineRuntime:
             _LOGGER.info(
                 "re-optimized plan %s/%s because price coverage extended to %s",
                 self.timeline_slug,
-                device_slug,
+                plan_key,
                 format_iso(coverage_end, timespec="minutes"),
             )
 
@@ -825,15 +925,30 @@ class TimelineRuntime:
     def status_entity_id(self) -> str:
         return f"sensor.{self.timeline_slug}_status"
 
-    def plan_entity_id(self, device_slug: str) -> str:
-        return f"sensor.{self.timeline_slug}_plan_{device_slug}"
+    def plan_entity_id(self, planner_slug: str, device_slug: str) -> str:
+        return f"sensor.{self.timeline_slug}_{planner_slug}_{device_slug}"
+
+    def timeline_device_identifier(self) -> tuple[str, str]:
+        return (DOMAIN, f"{self.entry.entry_id}:{self.timeline_slug}")
+
+    def plan_device_identifier(self, planner_slug: str) -> tuple[str, str]:
+        return (DOMAIN, f"{self.entry.entry_id}:{self.timeline_slug}:planner:{planner_slug}")
 
     def build_device_info(self) -> dict[str, Any]:
         return {
-            "identifiers": {("electricity_price_suite", f"{self.entry.entry_id}:{self.timeline_slug}")},
+            "identifiers": {self.timeline_device_identifier()},
             "name": self.timeline_name,
             "manufacturer": "Electricity Price Suite",
             "model": "Price Timeline",
+        }
+
+    def build_plan_device_info(self, planner_name: str, planner_slug: str) -> dict[str, Any]:
+        return {
+            "identifiers": {self.plan_device_identifier(planner_slug)},
+            "name": f"{self.timeline_name} {planner_name}".strip(),
+            "manufacturer": "Electricity Price Suite",
+            "model": "Optimization Planner",
+            "via_device": self.timeline_device_identifier(),
         }
 
     def _compute_timeline_stats(self) -> TimelineStats:
@@ -971,8 +1086,7 @@ class TimelineRuntime:
     def _pending_primary(self) -> bool:
         return pending_primary(self.store.get_slots(), self.timezone)
 
-    def _create_plan_sensor(self, device_slug: str, device_name: str):
+    def _create_plan_sensor(self, plan_key: str, payload: PlanPayload):
         from .sensor import PlanSensor
 
-        payload = self.store.get_plans().get(device_slug)
-        return PlanSensor(self, device_slug, device_name, payload)
+        return PlanSensor(self, plan_key, payload)

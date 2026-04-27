@@ -23,6 +23,7 @@ from .const import (
     CONF_ENTRY_TYPE,
     CONF_MAX_POWER_KW,
     CONF_NAME,
+    CONF_PLANNER_DEVICES,
     CONF_ROUND_DECIMALS,
     CONF_SLUG,
     CONF_SLOT_MINUTES,
@@ -33,6 +34,7 @@ from .const import (
     DEFAULT_CURRENCY,
     DEFAULT_ENABLE_CURRENT_PRICE_SENSOR,
     DEFAULT_MAX_POWER_KW,
+    DEFAULT_PLANNER_DEVICES,
     DEFAULT_ROUND_DECIMALS,
     DEFAULT_SLOT_MINUTES,
     DOMAIN,
@@ -52,6 +54,25 @@ def _float_selector(*, min_value: float = 0, max_value: float | None = None, ste
 
 def _program_list_selector() -> selector.SelectSelector:
     return selector.SelectSelector(selector.SelectSelectorConfig(options=[], multiple=True, custom_value=True))
+
+
+def _planner_list_selector() -> selector.SelectSelector:
+    return selector.SelectSelector(selector.SelectSelectorConfig(options=[], multiple=True, custom_value=True))
+
+
+def parse_name_list(values: list[str] | None) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        name = str(value).strip()
+        if not name:
+            continue
+        slug = slugify(name)
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        names.append(name)
+    return names
 
 
 class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -90,6 +111,7 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_CACHE_RETENTION_DAYS: int(user_input[CONF_CACHE_RETENTION_DAYS]),
                 CONF_ROUND_DECIMALS: int(user_input[CONF_ROUND_DECIMALS]),
                 CONF_ENABLE_CURRENT_PRICE_SENSOR: bool(user_input[CONF_ENABLE_CURRENT_PRICE_SENSOR]),
+                CONF_PLANNER_DEVICES: parse_name_list(user_input.get(CONF_PLANNER_DEVICES, [])),
             })
             return await self.async_step_primary_type()
         schema = vol.Schema({
@@ -98,6 +120,7 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_CACHE_RETENTION_DAYS, default=DEFAULT_CACHE_RETENTION_DAYS): _int_selector(min_value=1, max_value=365),
             vol.Required(CONF_ROUND_DECIMALS, default=DEFAULT_ROUND_DECIMALS): _int_selector(min_value=0, max_value=8),
             vol.Required(CONF_ENABLE_CURRENT_PRICE_SENSOR, default=DEFAULT_ENABLE_CURRENT_PRICE_SENSOR): bool,
+            vol.Optional(CONF_PLANNER_DEVICES, default=DEFAULT_PLANNER_DEVICES): _planner_list_selector(),
         })
         return self.async_show_form(step_id="timeline", data_schema=schema, errors={})
 
@@ -261,13 +284,20 @@ class ElectricityPriceSuiteOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_timeline(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
-            return self.async_create_entry(title="", data={CONF_CURRENCY: user_input[CONF_CURRENCY], CONF_CACHE_RETENTION_DAYS: int(user_input[CONF_CACHE_RETENTION_DAYS]), CONF_ROUND_DECIMALS: int(user_input[CONF_ROUND_DECIMALS]), CONF_ENABLE_CURRENT_PRICE_SENSOR: user_input[CONF_ENABLE_CURRENT_PRICE_SENSOR]})
+            return self.async_create_entry(title="", data={
+                CONF_CURRENCY: user_input[CONF_CURRENCY],
+                CONF_CACHE_RETENTION_DAYS: int(user_input[CONF_CACHE_RETENTION_DAYS]),
+                CONF_ROUND_DECIMALS: int(user_input[CONF_ROUND_DECIMALS]),
+                CONF_ENABLE_CURRENT_PRICE_SENSOR: user_input[CONF_ENABLE_CURRENT_PRICE_SENSOR],
+                CONF_PLANNER_DEVICES: parse_name_list(user_input.get(CONF_PLANNER_DEVICES, [])),
+            })
         current = {**self._config_entry.data, **self._config_entry.options}
         schema = vol.Schema({
             vol.Required(CONF_CURRENCY, default=current.get(CONF_CURRENCY, DEFAULT_CURRENCY)): str,
             vol.Required(CONF_CACHE_RETENTION_DAYS, default=current.get(CONF_CACHE_RETENTION_DAYS, DEFAULT_CACHE_RETENTION_DAYS)): _int_selector(min_value=1, max_value=365),
             vol.Required(CONF_ROUND_DECIMALS, default=current.get(CONF_ROUND_DECIMALS, DEFAULT_ROUND_DECIMALS)): _int_selector(min_value=0, max_value=8),
             vol.Required(CONF_ENABLE_CURRENT_PRICE_SENSOR, default=current.get(CONF_ENABLE_CURRENT_PRICE_SENSOR, DEFAULT_ENABLE_CURRENT_PRICE_SENSOR)): bool,
+            vol.Optional(CONF_PLANNER_DEVICES, default=current.get(CONF_PLANNER_DEVICES, DEFAULT_PLANNER_DEVICES)): _planner_list_selector(),
         })
         return self.async_show_form(step_id="timeline", data_schema=schema, errors={})
 

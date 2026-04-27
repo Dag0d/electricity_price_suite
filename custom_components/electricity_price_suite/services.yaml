@@ -174,6 +174,12 @@ optimize_device:
     entity:
       domain: sensor
   fields:
+    planner_name:
+      required: true
+      description: Configured planner device name within this timeline where the plan entity should be created.
+      example: "Geräteplanung"
+      selector:
+        text: {}
     device_name:
       required: true
       description: Logical device label used to build and persist the plan entity.

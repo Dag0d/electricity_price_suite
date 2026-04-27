@@ -17,7 +17,8 @@
           "currency": "Währung",
           "cache_retention_days": "Cache-Aufbewahrung (Tage)",
           "round_decimals": "Anzahl Nachkommastellen für Preise",
-          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren"
+          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren",
+          "planner_devices": "Planer-Geräte"
         }
       },
       "profile_logger": {
@@ -98,7 +99,8 @@
           "currency": "Währung",
           "cache_retention_days": "Cache-Aufbewahrung (Tage)",
           "round_decimals": "Anzahl Nachkommastellen für Preise",
-          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren"
+          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren",
+          "planner_devices": "Planer-Geräte"
         }
       },
       "profile_logger": {
@@ -175,6 +177,10 @@
         "device_name": {
           "name": "Gerätename",
           "description": "Logischer Gerätename für die Plan-Entity und Persistenz."
+        },
+        "planner_name": {
+          "name": "Planer-Gerät",
+          "description": "Konfigurierter Planer-Gerätename innerhalb dieser Timeline, in dem die Plan-Entity angelegt werden soll."
         },
         "duration_minutes": {
           "name": "Dauer (Minuten)",

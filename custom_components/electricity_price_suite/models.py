@@ -59,7 +59,10 @@ class SourceConfig(TypedDict, total=False):
 class PlanPayload(TypedDict):
     """Persisted plan payload for one plan entity."""
 
+    planner_name: str
+    planner_slug: str
     device_name: str
+    device_slug: str
     status: str
     reason: str | None
     best_start: str | None

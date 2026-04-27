@@ -5,16 +5,16 @@ description: >
 mode: restart
 triggers:
   - trigger: state
-    entity_id: sensor.example_timeline_plan_example_device
+    entity_id: sensor.example_timeline_gerateplanung_example_device
 conditions:
   - condition: template
     value_template: >
       {{ trigger.to_state is not none and
          trigger.to_state.state in ['unknown', 'unavailable']
-         or state_attr('sensor.example_timeline_plan_example_device', 'status') == 'no-candidate' }}
+         or state_attr('sensor.example_timeline_gerateplanung_example_device', 'status') == 'no-candidate' }}
 actions:
   - variables:
-      plan_entity: sensor.example_timeline_plan_example_device
+      plan_entity: sensor.example_timeline_gerateplanung_example_device
       plan_name: >
         {{ state_attr(plan_entity, 'friendly_name') or 'Example Plan' }}
       status: >

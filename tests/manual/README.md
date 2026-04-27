@@ -18,7 +18,7 @@ Expected entity IDs:
 - `sensor.test_timeline_pricing_meta`
 - `sensor.test_timeline_status`
 - `sensor.test_timeline_current_price`
-- `sensor.test_timeline_plan_test_device`
+- `sensor.test_timeline_gerateplanung_test_device`
 
 ## Profile Logger Entry to Create
 
