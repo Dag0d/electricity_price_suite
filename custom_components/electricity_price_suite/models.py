@@ -36,6 +36,26 @@ class SlotRow(TypedDict):
     observed_at: str
 
 
+class ConsumptionSlotRow(TypedDict):
+    """Persisted consumption/cost row for one price slot."""
+
+    start_time: str
+    end_time: str
+    consumption_kwh: float
+    price_per_kwh: float | None
+    energy_cost: float | None
+    observed_at: str
+
+
+class ConsumptionMonthlyRollup(TypedDict):
+    """Persisted monthly rollup for purged historical consumption slots."""
+
+    month: str
+    consumption_kwh: float
+    energy_cost: float
+    updated_at: str
+
+
 class SourceConfig(TypedDict, total=False):
     """Normalized source config stored by the integration."""
 

@@ -18,6 +18,10 @@
           "cache_retention_days": "Cache-Aufbewahrung (Tage)",
           "round_decimals": "Anzahl Nachkommastellen für Preise",
           "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren",
+          "consumption_energy_entity": "Verbrauchs-Energie-Entität",
+          "basic_fee_mode": "Grundgebühr-Modus",
+          "basic_fee_amount": "Grundgebühr-Betrag",
+          "avg_price_include_basic_fee": "Durchschnittspreis inkl. Grundgebühr",
           "planner_devices": "Planer-Geräte"
         }
       },
@@ -100,6 +104,10 @@
           "cache_retention_days": "Cache-Aufbewahrung (Tage)",
           "round_decimals": "Anzahl Nachkommastellen für Preise",
           "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren",
+          "consumption_energy_entity": "Verbrauchs-Energie-Entität",
+          "basic_fee_mode": "Grundgebühr-Modus",
+          "basic_fee_amount": "Grundgebühr-Betrag",
+          "avg_price_include_basic_fee": "Durchschnittspreis inkl. Grundgebühr",
           "planner_devices": "Planer-Geräte"
         }
       },
@@ -126,6 +134,54 @@
       },
       "status": {
         "name": "Status"
+      },
+      "consumption_today": {
+        "name": "Verbrauch heute"
+      },
+      "consumption_current_hour": {
+        "name": "Verbrauch aktuelle Stunde"
+      },
+      "consumption_month": {
+        "name": "Verbrauch Monat"
+      },
+      "consumption_yesterday": {
+        "name": "Verbrauch gestern"
+      },
+      "cost_today": {
+        "name": "Kosten heute"
+      },
+      "cost_month": {
+        "name": "Kosten Monat"
+      },
+      "cost_yesterday": {
+        "name": "Kosten gestern"
+      },
+      "cost_today_incl_basic_fee": {
+        "name": "Kosten heute inkl. Grundgebühr"
+      },
+      "cost_month_incl_basic_fee": {
+        "name": "Kosten Monat inkl. Grundgebühr"
+      },
+      "cost_yesterday_incl_basic_fee": {
+        "name": "Kosten gestern inkl. Grundgebühr"
+      },
+      "avg_paid_price_today": {
+        "name": "Durchschnittspreis heute"
+      },
+      "avg_paid_price_month": {
+        "name": "Durchschnittspreis Monat"
+      },
+      "avg_paid_price_yesterday": {
+        "name": "Durchschnittspreis gestern"
+      },
+      "avg_paid_price_last_month": {
+        "name": "Durchschnittspreis letzter Monat"
+      },
+      "cost_last_month": {
+        "name": "Kosten letzter Monat"
+      },
+      "cost_last_month_incl_basic_fee": {
+        "name": "Kosten letzter Monat inkl. Grundgebühr"
       }
     }
   },

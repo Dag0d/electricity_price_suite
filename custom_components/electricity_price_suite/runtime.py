@@ -8,22 +8,33 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.util import slugify
 from homeassistant.util import dt as dt_util
 
+from .consumption_stats import build_consumption_metrics
 from .const import (
     ATTR_PRICE_PER_KWH,
     ATTR_START_TIME,
+    CONF_BASIC_FEE_AMOUNT,
+    CONF_BASIC_FEE_MODE,
+    CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
     CONF_CACHE_RETENTION_DAYS,
+    CONF_CONSUMPTION_ENERGY_ENTITY,
     CONF_CURRENCY,
     CONF_ENABLE_CURRENT_PRICE_SENSOR,
     CONF_PLANNER_DEVICES,
     CONF_SOURCE_CHAIN,
     CONF_ROUND_DECIMALS,
+    DEFAULT_BASIC_FEE_AMOUNT,
+    DEFAULT_BASIC_FEE_MODE,
+    DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE,
     DEFAULT_BILLING_SLOT_MINUTES,
+    DEFAULT_CONSUMPTION_RETENTION_DAYS,
     DEFAULT_ENABLE_CURRENT_PRICE_SENSOR,
     DEFAULT_PLANNER_DEVICES,
     DEFAULT_ROUND_DECIMALS,
@@ -82,6 +93,25 @@ class TimelineRuntime:
         self.source_chain = list(
             entry.options.get(CONF_SOURCE_CHAIN, entry.data.get(CONF_SOURCE_CHAIN, []))
         )
+        self.consumption_energy_entity = str(
+            entry.options.get(
+                CONF_CONSUMPTION_ENERGY_ENTITY,
+                entry.data.get(CONF_CONSUMPTION_ENERGY_ENTITY, ""),
+            )
+            or ""
+        ).strip()
+        self.basic_fee_mode = str(
+            entry.options.get(CONF_BASIC_FEE_MODE, entry.data.get(CONF_BASIC_FEE_MODE, DEFAULT_BASIC_FEE_MODE))
+        )
+        self.basic_fee_amount = float(
+            entry.options.get(CONF_BASIC_FEE_AMOUNT, entry.data.get(CONF_BASIC_FEE_AMOUNT, DEFAULT_BASIC_FEE_AMOUNT))
+        )
+        self.avg_price_include_basic_fee = bool(
+            entry.options.get(
+                CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
+                entry.data.get(CONF_AVG_PRICE_INCLUDE_BASIC_FEE, DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE),
+            )
+        )
         self.planner_devices = self._normalize_planner_devices(
             entry.options.get(CONF_PLANNER_DEVICES, entry.data.get(CONF_PLANNER_DEVICES, DEFAULT_PLANNER_DEVICES))
         )
@@ -96,10 +126,12 @@ class TimelineRuntime:
         self.timeline_sensor = None
         self.current_price_sensor = None
         self.status_sensor = None
+        self.consumption_sensors: dict[str, Any] = {}
         self.plan_sensors: dict[str, Any] = {}
         self._add_entities = None
         self._unsub_scheduled_update = None
         self._unsub_scheduled_poll = None
+        self._unsub_consumption_sample = None
 
         self.latest_stats = TimelineStats(
             state=None,
@@ -108,6 +140,7 @@ class TimelineRuntime:
             current_price_start_time=None,
             status="no_data",
         )
+        self.latest_consumption_metrics: dict[str, Any] = {}
 
     def _normalize_planner_devices(self, raw: Any) -> list[str]:
         items = raw if isinstance(raw, list) else []
@@ -145,15 +178,15 @@ class TimelineRuntime:
 
     async def async_initialize(self) -> None:
         await self.store.async_load()
-        if self._migrate_legacy_plans():
-            await self.store.async_save()
         if not self.store.get_sources():
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
             await self.store.async_save()
         await self._rebuild_from_store()
+        await self._async_update_consumption_metrics(sample_now=True)
         self._schedule_next_time_update()
         self._schedule_next_poll_update()
+        self._schedule_next_consumption_sample()
 
     async def async_shutdown(self) -> None:
         if self._unsub_scheduled_update is not None:
@@ -162,35 +195,42 @@ class TimelineRuntime:
         if self._unsub_scheduled_poll is not None:
             self._unsub_scheduled_poll()
             self._unsub_scheduled_poll = None
+        if self._unsub_consumption_sample is not None:
+            self._unsub_consumption_sample()
+            self._unsub_consumption_sample = None
 
     def register_add_entities(self, add_entities: Any) -> None:
         self._add_entities = add_entities
 
-    def _migrate_legacy_plans(self) -> bool:
-        plans = self.store.get_plans()
-        if not plans:
-            return False
-        changed = False
-        migrated: dict[str, PlanPayload] = {}
-        fallback_planner_name = self.planner_devices[0] if self.planner_devices else "Planung"
-        fallback_planner_slug = slugify(fallback_planner_name)
-        for old_key, payload in list(plans.items()):
-            if payload.get("planner_name") and payload.get("planner_slug") and payload.get("device_slug"):
-                migrated[str(old_key)] = payload
+    async def async_cleanup_orphan_planner_devices(self) -> None:
+        entity_registry = er.async_get(self.hass)
+        device_registry = dr.async_get(self.hass)
+        current_identifiers = {
+            self.plan_device_identifier(slugify(planner_name))
+            for planner_name in self.planner_devices
+        }
+        planner_prefix = f"{self.entry.entry_id}:{self.timeline_slug}:planner:"
+
+        for device in dr.async_entries_for_config_entry(device_registry, self.entry.entry_id):
+            planner_identifier = next(
+                (
+                    identifier
+                    for identifier in device.identifiers
+                    if identifier[0] == DOMAIN and identifier[1].startswith(planner_prefix)
+                ),
+                None,
+            )
+            if planner_identifier is None:
                 continue
-            device_name = str(payload.get("device_name", old_key))
-            device_slug = slugify(str(payload.get("device_slug") or device_name))
-            payload["planner_name"] = fallback_planner_name
-            payload["planner_slug"] = fallback_planner_slug
-            payload["device_slug"] = device_slug
-            migrated[self.plan_key(fallback_planner_slug, device_slug)] = payload
-            changed = True
-        if changed:
-            self.store._data["plans"] = migrated
-        return changed
+            if planner_identifier in current_identifiers:
+                continue
+            if er.async_entries_for_device(entity_registry, device.id, include_disabled_entities=True):
+                continue
+            device_registry.async_remove_device(device.id)
 
     async def _rebuild_from_store(self) -> None:
         self.latest_stats = self._compute_timeline_stats()
+        self.latest_consumption_metrics = self._compute_consumption_metrics()
         self._schedule_next_time_update()
 
     def _normalize_source(self, source: dict[str, Any], fallback_priority: int) -> SourceConfig:
@@ -918,12 +958,141 @@ class TimelineRuntime:
         )
 
     @property
+    def has_consumption_tracking(self) -> bool:
+        return bool(self.consumption_energy_entity)
+
+    def _read_consumption_energy_kwh(self) -> float | None:
+        if not self.has_consumption_tracking:
+            return None
+        state = self.hass.states.get(self.consumption_energy_entity)
+        if state is None:
+            return None
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            return None
+        unit = state.attributes.get("unit_of_measurement")
+        if unit == UnitOfEnergy.WATT_HOUR:
+            return value / 1000.0
+        if unit == UnitOfEnergy.KILO_WATT_HOUR:
+            return value
+        return None
+
+    def _price_segments(self) -> list[tuple[datetime, datetime, float]]:
+        tz = ZoneInfo(self.timezone)
+        rows = self.store.get_slots()
+        slot_minutes = self._detect_billing_slot_minutes(rows)
+        segments: list[tuple[datetime, datetime, float]] = []
+        for row in rows:
+            start = parse_iso_local(row["start_time"], tz)
+            if start is None:
+                continue
+            segments.append(
+                (
+                    start,
+                    start + timedelta(minutes=slot_minutes),
+                    float(row["price_per_kwh"]),
+                )
+            )
+        return segments
+
+    def _book_consumption_delta(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        delta_kwh: float,
+    ) -> bool:
+        if delta_kwh <= 0:
+            return False
+
+        segments = self._price_segments()
+        total_seconds = max((end - start).total_seconds(), 0.0)
+        if total_seconds <= 0:
+            return False
+
+        booked = False
+        booked_seconds = 0.0
+        for seg_start, seg_end, price in segments:
+            overlap_start = max(start, seg_start)
+            overlap_end = min(end, seg_end)
+            overlap_seconds = (overlap_end - overlap_start).total_seconds()
+            if overlap_seconds <= 0:
+                continue
+            share = delta_kwh * (overlap_seconds / total_seconds)
+            if share <= 0:
+                continue
+            self.store.add_consumption_slot(
+                start_time=format_iso(seg_start, timespec="seconds"),
+                end_time=format_iso(seg_end, timespec="seconds"),
+                consumption_kwh=share,
+                price_per_kwh=price,
+                energy_cost=share * price,
+            )
+            booked = True
+            booked_seconds += overlap_seconds
+
+        remaining_seconds = max(total_seconds - booked_seconds, 0.0)
+        if remaining_seconds > 0:
+            remaining_share = delta_kwh * (remaining_seconds / total_seconds)
+            self.store.add_consumption_slot(
+                start_time=format_iso(start, timespec="seconds"),
+                end_time=format_iso(end, timespec="seconds"),
+                consumption_kwh=remaining_share,
+                price_per_kwh=None,
+                energy_cost=None,
+            )
+            booked = True
+        return booked
+
+    async def _async_update_consumption_metrics(self, *, sample_now: bool) -> None:
+        if not self.has_consumption_tracking:
+            self.latest_consumption_metrics = {}
+            return
+
+        tz = ZoneInfo(self.timezone)
+        now = datetime.now(tz)
+        current_energy_kwh = self._read_consumption_energy_kwh()
+        snapshot = self.store.get_consumption_last_snapshot()
+
+        if current_energy_kwh is None:
+            self.latest_consumption_metrics = self._compute_consumption_metrics()
+            return
+
+        if sample_now and snapshot is not None:
+            prev_taken = parse_iso_local(snapshot.get("taken_at"), tz)
+            prev_energy = snapshot.get("energy_kwh")
+            if prev_taken is not None and isinstance(prev_energy, (int, float)):
+                delta = float(current_energy_kwh) - float(prev_energy)
+                if delta > 0:
+                    self._book_consumption_delta(start=prev_taken, end=now, delta_kwh=delta)
+
+        self.store.set_consumption_last_snapshot(
+            taken_at=format_iso(now, timespec="seconds"),
+            energy_kwh=current_energy_kwh,
+        )
+        self.store.purge_old_consumption_slots(
+            self.timezone,
+            DEFAULT_CONSUMPTION_RETENTION_DAYS,
+        )
+        await self.store.async_save()
+        self.latest_consumption_metrics = self._compute_consumption_metrics()
+
+    @property
     def timeline_entity_id(self) -> str:
         return f"sensor.{self.timeline_slug}_pricing_meta"
 
     @property
     def status_entity_id(self) -> str:
         return f"sensor.{self.timeline_slug}_status"
+
+    def consumption_entity_id(self, metric_key: str) -> str:
+        suffix = metric_key
+        for prefix in ("consumption_", "cost_", "avg_paid_price_"):
+            if suffix.startswith(prefix):
+                suffix = suffix
+                break
+        return f"sensor.{self.timeline_slug}_{suffix}"
 
     def plan_entity_id(self, planner_slug: str, device_slug: str) -> str:
         return f"sensor.{self.timeline_slug}_{planner_slug}_{device_slug}"
@@ -960,6 +1129,20 @@ class TimelineRuntime:
             fallback_slot_minutes=DEFAULT_BILLING_SLOT_MINUTES,
         )
 
+    def _compute_consumption_metrics(self) -> dict[str, Any]:
+        if not self.has_consumption_tracking:
+            return {}
+        return build_consumption_metrics(
+            slots=self.store.get_consumption_slots(),
+            monthly_rollups=self.store.get_consumption_monthly_rollups(),
+            timezone_name=self.timezone,
+            round_decimals=self.round_decimals,
+            basic_fee_mode=self.basic_fee_mode,
+            basic_fee_amount=self.basic_fee_amount,
+            avg_price_include_basic_fee=self.avg_price_include_basic_fee,
+            consumption_energy_entity=self.consumption_energy_entity,
+        )
+
     def _filter_today_tomorrow_slots(self, slots: list[SlotRecord]) -> list[SlotRecord]:
         return filter_today_tomorrow_slots(slots, self.timezone)
 
@@ -981,6 +1164,8 @@ class TimelineRuntime:
             self.status_sensor.async_write_ha_state()
         if self.current_price_sensor is not None:
             self.current_price_sensor.async_write_ha_state()
+        for sensor in self.consumption_sensors.values():
+            sensor.async_write_ha_state()
 
     @callback
     def write_state_entities(self) -> None:
@@ -1023,6 +1208,8 @@ class TimelineRuntime:
 
     async def _handle_scheduled_time_update(self, _now: datetime) -> None:
         self.latest_stats = self._compute_timeline_stats()
+        if self.has_consumption_tracking:
+            self.latest_consumption_metrics = self._compute_consumption_metrics()
         self._write_time_based_sensors()
         self._schedule_next_time_update()
         self._schedule_next_poll_update()
@@ -1079,6 +1266,35 @@ class TimelineRuntime:
         await self.async_refresh_timeline(override_sources=None)
         self._write_time_based_sensors()
         self._schedule_next_poll_update()
+
+    @callback
+    def _schedule_next_consumption_sample(self) -> None:
+        if self._unsub_consumption_sample is not None:
+            self._unsub_consumption_sample()
+            self._unsub_consumption_sample = None
+        if not self.has_consumption_tracking:
+            return
+
+        tz = ZoneInfo(self.timezone)
+        now = datetime.now(tz)
+        next_second = 30 if now.second < 30 else 60
+        next_sample = now.replace(microsecond=0)
+        if next_second == 60:
+            next_sample = (next_sample + timedelta(minutes=1)).replace(second=0)
+        else:
+            next_sample = next_sample.replace(second=30)
+        if next_sample <= now:
+            next_sample = now + timedelta(seconds=30)
+        self._unsub_consumption_sample = async_track_point_in_time(
+            self.hass,
+            self._handle_consumption_sample,
+            dt_util.as_utc(next_sample),
+        )
+
+    async def _handle_consumption_sample(self, _now: datetime) -> None:
+        await self._async_update_consumption_metrics(sample_now=True)
+        self._write_time_based_sensors()
+        self._schedule_next_consumption_sample()
 
     def _has_primary_tomorrow_rows(self) -> bool:
         return has_primary_tomorrow_rows(self.store.get_slots(), self.timezone)

@@ -344,6 +344,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await runtime.async_initialize()
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await runtime.async_cleanup_orphan_planner_devices()
 
     @callback
     def _schedule_initial_refresh(_now):

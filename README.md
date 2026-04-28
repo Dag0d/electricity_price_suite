@@ -32,6 +32,23 @@ Per timeline, the integration exposes:
 - `sensor.<timeline_slug>_pricing_meta` (main timeline sensor)
 - `sensor.<timeline_slug>_status` (high-level status state for automations)
 - Optional: `sensor.<timeline_slug>_current_price`
+- Optional consumption/cost sensors when a total-increasing consumption entity is configured:
+  - `sensor.<timeline_slug>_consumption_today_kwh`
+  - `sensor.<timeline_slug>_consumption_current_hour_kwh`
+  - `sensor.<timeline_slug>_consumption_month_kwh`
+  - `sensor.<timeline_slug>_consumption_yesterday_kwh`
+  - `sensor.<timeline_slug>_cost_today`
+  - `sensor.<timeline_slug>_cost_yesterday`
+  - `sensor.<timeline_slug>_cost_month`
+  - `sensor.<timeline_slug>_cost_last_month`
+  - `sensor.<timeline_slug>_cost_today_incl_basic_fee`
+  - `sensor.<timeline_slug>_cost_yesterday_incl_basic_fee`
+  - `sensor.<timeline_slug>_cost_month_incl_basic_fee`
+  - `sensor.<timeline_slug>_cost_last_month_incl_basic_fee`
+  - `sensor.<timeline_slug>_avg_paid_price_today`
+  - `sensor.<timeline_slug>_avg_paid_price_yesterday`
+  - `sensor.<timeline_slug>_avg_paid_price_month`
+  - `sensor.<timeline_slug>_avg_paid_price_last_month`
 - Dynamic plan entities: `sensor.<timeline_slug>_<planner_slug>_<device_slug>`
 
 ### 3) Profile Logger Instance
@@ -72,6 +89,7 @@ When a logger profile is used, the optimizer reads it directly from the internal
 - Priority-based slot merge with replace/ignore logic
 - Weighted timeline metrics (including mixed slot durations)
 - Current price sensor (optional)
+- Optional consumption/cost tracking from one total-increasing energy entity
 - Status sensor with fixed machine-readable states
 - Device plan entity lifecycle: one persistent plan entity per device per planner within a timeline
 - Consumption profile logger entries with per-program sensors
@@ -206,6 +224,29 @@ Includes attributes like `today_rows`, `tomorrow_rows`, and `last_source_chain_f
 
 - State: current slot price (rounded)
 - Minimal attributes for current price context
+
+### Optional consumption/cost sensors
+
+If a timeline is configured with a total-increasing consumption energy entity, the integration keeps an internal rolling slot ledger for 31 days and exposes dedicated consumption/cost sensors.
+
+- Consumption sensors expose `kWh`
+- Cost sensors expose the configured timeline currency
+- Average paid price sensors expose `<currency>/kWh`
+- The consumption path is re-sampled every 30 seconds, so `current hour` and running averages are near-live without keeping 30-second raw rows
+- Recorder will store their history like normal Home Assistant sensors
+- `last_month` values are preserved via monthly rollups and do not require retention beyond 31 days
+
+Basic fee modes:
+
+- `none`
+- `monthly`
+  - Internally prorated to a daily share (`monthly_fee / days_in_month`)
+- `daily`
+  - Treated as a fixed fee per elapsed day
+
+For month-level `incl_basic_fee` sensors, the fee is shown as the current accumulated month-to-date share.
+
+Average paid price sensors can optionally include the configured basic fee through the timeline option `avg_price_include_basic_fee`.
 
 ### `sensor.<timeline_slug>_<planner_slug>_<device_slug>`
 

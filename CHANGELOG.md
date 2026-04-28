@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.2 - 2026-04-28
+
+### Changed
+- Added optional timeline consumption and cost tracking from one total-increasing energy entity with dedicated sensors for today, yesterday, current hour, month, and last month.
+- Added optional daily or monthly basic-fee handling for cost sensors, including month-to-date basic-fee accumulation for current-month views.
+- Added an option to include the configured basic fee in average paid price sensors.
+- Updated timeline config/options flow, translations, and README documentation for the new consumption and cost tracking workflow.
+
+### Fixed
+- Added cleanup for orphaned planner devices so stale empty planner devices are removed only when they no longer contain any entities.
+
 ## 2026.4.1 - 2026-04-27
 
 ### Changed

@@ -14,9 +14,13 @@ from homeassistant.util import slugify
 
 from .const import (
     CONF_ALLOWED_PROGRAMS,
+    CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
+    CONF_BASIC_FEE_AMOUNT,
+    CONF_BASIC_FEE_MODE,
     CONF_AUTO_CREATE_PROGRAMS,
     CONF_BLOCKED_PROGRAMS,
     CONF_CACHE_RETENTION_DAYS,
+    CONF_CONSUMPTION_ENERGY_ENTITY,
     CONF_CURRENCY,
     CONF_ENABLE_CURRENT_PRICE_SENSOR,
     CONF_ENERGY_ENTITY,
@@ -30,6 +34,9 @@ from .const import (
     CONF_SOURCE_CHAIN,
     CONF_TIMELINE_NAME,
     DEFAULT_AUTO_CREATE_PROGRAMS,
+    DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE,
+    DEFAULT_BASIC_FEE_AMOUNT,
+    DEFAULT_BASIC_FEE_MODE,
     DEFAULT_CACHE_RETENTION_DAYS,
     DEFAULT_CURRENCY,
     DEFAULT_ENABLE_CURRENT_PRICE_SENSOR,
@@ -58,6 +65,19 @@ def _program_list_selector() -> selector.SelectSelector:
 
 def _planner_list_selector() -> selector.SelectSelector:
     return selector.SelectSelector(selector.SelectSelectorConfig(options=[], multiple=True, custom_value=True))
+
+
+def _basic_fee_mode_selector() -> selector.SelectSelector:
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                selector.SelectOptionDict(value="none", label="None"),
+                selector.SelectOptionDict(value="monthly", label="Monthly fixed fee"),
+                selector.SelectOptionDict(value="daily", label="Daily fixed fee"),
+            ],
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
 
 
 def parse_name_list(values: list[str] | None) -> list[str]:
@@ -101,28 +121,43 @@ class ElectricityPriceSuiteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=schema, errors={})
 
     async def async_step_timeline(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
         if user_input is not None:
-            title = user_input[CONF_TIMELINE_NAME]
-            await self.async_set_unique_id(f"{ENTRY_TYPE_TIMELINE}_{slugify(title)}")
-            self._abort_if_unique_id_configured()
-            self._draft.update({
-                CONF_TIMELINE_NAME: title,
-                CONF_CURRENCY: user_input[CONF_CURRENCY],
-                CONF_CACHE_RETENTION_DAYS: int(user_input[CONF_CACHE_RETENTION_DAYS]),
-                CONF_ROUND_DECIMALS: int(user_input[CONF_ROUND_DECIMALS]),
-                CONF_ENABLE_CURRENT_PRICE_SENSOR: bool(user_input[CONF_ENABLE_CURRENT_PRICE_SENSOR]),
-                CONF_PLANNER_DEVICES: parse_name_list(user_input.get(CONF_PLANNER_DEVICES, [])),
-            })
-            return await self.async_step_primary_type()
+            consumption_energy_entity = str(user_input.get(CONF_CONSUMPTION_ENERGY_ENTITY, "") or "").strip()
+            if consumption_energy_entity and (
+                energy_error := validate_energy_entity(self.hass, consumption_energy_entity)
+            ) is not None:
+                errors[CONF_CONSUMPTION_ENERGY_ENTITY] = energy_error
+            else:
+                title = user_input[CONF_TIMELINE_NAME]
+                await self.async_set_unique_id(f"{ENTRY_TYPE_TIMELINE}_{slugify(title)}")
+                self._abort_if_unique_id_configured()
+                self._draft.update({
+                    CONF_TIMELINE_NAME: title,
+                    CONF_CURRENCY: user_input[CONF_CURRENCY],
+                    CONF_CACHE_RETENTION_DAYS: int(user_input[CONF_CACHE_RETENTION_DAYS]),
+                    CONF_ROUND_DECIMALS: int(user_input[CONF_ROUND_DECIMALS]),
+                    CONF_ENABLE_CURRENT_PRICE_SENSOR: bool(user_input[CONF_ENABLE_CURRENT_PRICE_SENSOR]),
+                    CONF_CONSUMPTION_ENERGY_ENTITY: consumption_energy_entity,
+                    CONF_BASIC_FEE_MODE: str(user_input[CONF_BASIC_FEE_MODE]),
+                    CONF_BASIC_FEE_AMOUNT: float(user_input[CONF_BASIC_FEE_AMOUNT]),
+                    CONF_AVG_PRICE_INCLUDE_BASIC_FEE: bool(user_input[CONF_AVG_PRICE_INCLUDE_BASIC_FEE]),
+                    CONF_PLANNER_DEVICES: parse_name_list(user_input.get(CONF_PLANNER_DEVICES, [])),
+                })
+                return await self.async_step_primary_type()
         schema = vol.Schema({
             vol.Required(CONF_TIMELINE_NAME): str,
             vol.Required(CONF_CURRENCY, default=DEFAULT_CURRENCY): str,
             vol.Required(CONF_CACHE_RETENTION_DAYS, default=DEFAULT_CACHE_RETENTION_DAYS): _int_selector(min_value=1, max_value=365),
             vol.Required(CONF_ROUND_DECIMALS, default=DEFAULT_ROUND_DECIMALS): _int_selector(min_value=0, max_value=8),
             vol.Required(CONF_ENABLE_CURRENT_PRICE_SENSOR, default=DEFAULT_ENABLE_CURRENT_PRICE_SENSOR): bool,
+            vol.Optional(CONF_CONSUMPTION_ENERGY_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig()),
+            vol.Required(CONF_BASIC_FEE_MODE, default=DEFAULT_BASIC_FEE_MODE): _basic_fee_mode_selector(),
+            vol.Required(CONF_BASIC_FEE_AMOUNT, default=DEFAULT_BASIC_FEE_AMOUNT): _float_selector(min_value=0, max_value=500, step=0.01),
+            vol.Required(CONF_AVG_PRICE_INCLUDE_BASIC_FEE, default=DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE): bool,
             vol.Optional(CONF_PLANNER_DEVICES, default=DEFAULT_PLANNER_DEVICES): _planner_list_selector(),
         })
-        return self.async_show_form(step_id="timeline", data_schema=schema, errors={})
+        return self.async_show_form(step_id="timeline", data_schema=schema, errors=errors)
 
     async def async_step_profile_logger(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
@@ -283,23 +318,38 @@ class ElectricityPriceSuiteOptionsFlow(config_entries.OptionsFlow):
         return await self.async_step_timeline(user_input)
 
     async def async_step_timeline(self, user_input: dict[str, Any] | None = None):
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data={
-                CONF_CURRENCY: user_input[CONF_CURRENCY],
-                CONF_CACHE_RETENTION_DAYS: int(user_input[CONF_CACHE_RETENTION_DAYS]),
-                CONF_ROUND_DECIMALS: int(user_input[CONF_ROUND_DECIMALS]),
-                CONF_ENABLE_CURRENT_PRICE_SENSOR: user_input[CONF_ENABLE_CURRENT_PRICE_SENSOR],
-                CONF_PLANNER_DEVICES: parse_name_list(user_input.get(CONF_PLANNER_DEVICES, [])),
-            })
+            consumption_energy_entity = str(user_input.get(CONF_CONSUMPTION_ENERGY_ENTITY, "") or "").strip()
+            if consumption_energy_entity and (
+                energy_error := validate_energy_entity(self.hass, consumption_energy_entity)
+            ) is not None:
+                errors[CONF_CONSUMPTION_ENERGY_ENTITY] = energy_error
+            else:
+                return self.async_create_entry(title="", data={
+                    CONF_CURRENCY: user_input[CONF_CURRENCY],
+                    CONF_CACHE_RETENTION_DAYS: int(user_input[CONF_CACHE_RETENTION_DAYS]),
+                    CONF_ROUND_DECIMALS: int(user_input[CONF_ROUND_DECIMALS]),
+                    CONF_ENABLE_CURRENT_PRICE_SENSOR: user_input[CONF_ENABLE_CURRENT_PRICE_SENSOR],
+                    CONF_CONSUMPTION_ENERGY_ENTITY: consumption_energy_entity,
+                    CONF_BASIC_FEE_MODE: str(user_input[CONF_BASIC_FEE_MODE]),
+                    CONF_BASIC_FEE_AMOUNT: float(user_input[CONF_BASIC_FEE_AMOUNT]),
+                    CONF_AVG_PRICE_INCLUDE_BASIC_FEE: bool(user_input[CONF_AVG_PRICE_INCLUDE_BASIC_FEE]),
+                    CONF_PLANNER_DEVICES: parse_name_list(user_input.get(CONF_PLANNER_DEVICES, [])),
+                })
         current = {**self._config_entry.data, **self._config_entry.options}
         schema = vol.Schema({
             vol.Required(CONF_CURRENCY, default=current.get(CONF_CURRENCY, DEFAULT_CURRENCY)): str,
             vol.Required(CONF_CACHE_RETENTION_DAYS, default=current.get(CONF_CACHE_RETENTION_DAYS, DEFAULT_CACHE_RETENTION_DAYS)): _int_selector(min_value=1, max_value=365),
             vol.Required(CONF_ROUND_DECIMALS, default=current.get(CONF_ROUND_DECIMALS, DEFAULT_ROUND_DECIMALS)): _int_selector(min_value=0, max_value=8),
             vol.Required(CONF_ENABLE_CURRENT_PRICE_SENSOR, default=current.get(CONF_ENABLE_CURRENT_PRICE_SENSOR, DEFAULT_ENABLE_CURRENT_PRICE_SENSOR)): bool,
+            vol.Optional(CONF_CONSUMPTION_ENERGY_ENTITY, default=current.get(CONF_CONSUMPTION_ENERGY_ENTITY)): selector.EntitySelector(selector.EntitySelectorConfig()),
+            vol.Required(CONF_BASIC_FEE_MODE, default=current.get(CONF_BASIC_FEE_MODE, DEFAULT_BASIC_FEE_MODE)): _basic_fee_mode_selector(),
+            vol.Required(CONF_BASIC_FEE_AMOUNT, default=current.get(CONF_BASIC_FEE_AMOUNT, DEFAULT_BASIC_FEE_AMOUNT)): _float_selector(min_value=0, max_value=500, step=0.01),
+            vol.Required(CONF_AVG_PRICE_INCLUDE_BASIC_FEE, default=current.get(CONF_AVG_PRICE_INCLUDE_BASIC_FEE, DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE)): bool,
             vol.Optional(CONF_PLANNER_DEVICES, default=current.get(CONF_PLANNER_DEVICES, DEFAULT_PLANNER_DEVICES)): _planner_list_selector(),
         })
-        return self.async_show_form(step_id="timeline", data_schema=schema, errors={})
+        return self.async_show_form(step_id="timeline", data_schema=schema, errors=errors)
 
     async def async_step_profile_logger(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}

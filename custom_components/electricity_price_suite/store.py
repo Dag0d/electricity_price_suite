@@ -9,7 +9,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
-from .models import PlanPayload, SlotRecord, SlotRow, SourceConfig, utc_now_iso
+from .consumption_stats import month_key
+from .models import (
+    ConsumptionMonthlyRollup,
+    ConsumptionSlotRow,
+    PlanPayload,
+    SlotRecord,
+    SlotRow,
+    SourceConfig,
+    utc_now_iso,
+)
 from .time_utils import parse_iso_aware
 
 
@@ -29,6 +38,11 @@ class TimelineStore:
             "source_health": {},
             "plans": {},
             "sources": [],
+            "consumption": {
+                "last_snapshot": None,
+                "slots": {},
+                "monthly_rollups": {},
+            },
         }
 
     async def async_load(self) -> None:
@@ -119,6 +133,101 @@ class TimelineStore:
         rows = list(by_start.values())
         rows.sort(key=lambda item: item["start_time"])
         return rows
+
+    def get_consumption_slots(self) -> list[ConsumptionSlotRow]:
+        by_start: dict[str, ConsumptionSlotRow] = self._data.setdefault("consumption", {}).setdefault("slots", {})
+        rows = list(by_start.values())
+        rows.sort(key=lambda item: item["start_time"])
+        return rows
+
+    def get_consumption_monthly_rollups(self) -> dict[str, ConsumptionMonthlyRollup]:
+        return dict(self._data.setdefault("consumption", {}).setdefault("monthly_rollups", {}))
+
+    def get_consumption_last_snapshot(self) -> dict | None:
+        return self._data.setdefault("consumption", {}).get("last_snapshot")
+
+    def set_consumption_last_snapshot(self, *, taken_at: str, energy_kwh: float) -> None:
+        self._data.setdefault("consumption", {})["last_snapshot"] = {
+            "taken_at": taken_at,
+            "energy_kwh": float(energy_kwh),
+        }
+
+    def add_consumption_slot(
+        self,
+        *,
+        start_time: str,
+        end_time: str,
+        consumption_kwh: float,
+        price_per_kwh: float | None,
+        energy_cost: float | None,
+    ) -> None:
+        if consumption_kwh <= 0:
+            return
+        by_start: dict[str, ConsumptionSlotRow] = self._data.setdefault("consumption", {}).setdefault("slots", {})
+        existing = by_start.get(start_time)
+        if existing is None:
+            by_start[start_time] = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "consumption_kwh": float(consumption_kwh),
+                "price_per_kwh": float(price_per_kwh) if price_per_kwh is not None else None,
+                "energy_cost": float(energy_cost) if energy_cost is not None else None,
+                "observed_at": utc_now_iso(),
+            }
+            return
+
+        existing["end_time"] = end_time
+        existing["consumption_kwh"] = float(existing.get("consumption_kwh", 0.0) or 0.0) + float(consumption_kwh)
+        if energy_cost is not None:
+            existing["energy_cost"] = float(existing.get("energy_cost", 0.0) or 0.0) + float(energy_cost)
+        elif existing.get("energy_cost") is None:
+            existing["energy_cost"] = None
+        existing["price_per_kwh"] = float(price_per_kwh) if price_per_kwh is not None else existing.get("price_per_kwh")
+        existing["observed_at"] = utc_now_iso()
+
+    def purge_old_consumption_slots(self, timezone_name: str, retention_days: int) -> int:
+        tz = ZoneInfo(timezone_name)
+        cutoff_date = (datetime.now(tz) - timedelta(days=retention_days)).date()
+        consumption = self._data.setdefault("consumption", {})
+        by_start: dict[str, ConsumptionSlotRow] = consumption.setdefault("slots", {})
+        monthly_rollups: dict[str, ConsumptionMonthlyRollup] = consumption.setdefault("monthly_rollups", {})
+
+        remove_keys: list[str] = []
+        purged_month_totals: dict[str, tuple[float, float]] = {}
+        for key, row in by_start.items():
+            dt = parse_iso_aware(key)
+            if dt is None:
+                remove_keys.append(key)
+                continue
+            local_dt = dt.astimezone(tz)
+            if local_dt.date() >= cutoff_date:
+                continue
+            remove_keys.append(key)
+            bucket = month_key(local_dt)
+            prev_energy, prev_cost = purged_month_totals.get(bucket, (0.0, 0.0))
+            purged_month_totals[bucket] = (
+                prev_energy + float(row.get("consumption_kwh", 0.0) or 0.0),
+                prev_cost + float(row.get("energy_cost", 0.0) or 0.0),
+            )
+
+        for key in remove_keys:
+            by_start.pop(key, None)
+
+        for bucket, (energy, cost) in purged_month_totals.items():
+            existing = monthly_rollups.get(bucket)
+            if existing is None:
+                monthly_rollups[bucket] = {
+                    "month": bucket,
+                    "consumption_kwh": float(energy),
+                    "energy_cost": float(cost),
+                    "updated_at": utc_now_iso(),
+                }
+                continue
+            existing["consumption_kwh"] = float(existing.get("consumption_kwh", 0.0) or 0.0) + float(energy)
+            existing["energy_cost"] = float(existing.get("energy_cost", 0.0) or 0.0) + float(cost)
+            existing["updated_at"] = utc_now_iso()
+
+        return len(remove_keys)
 
     def set_plan(self, device_slug: str, payload: PlanPayload) -> None:
         self._data.setdefault("plans", {})[device_slug] = payload

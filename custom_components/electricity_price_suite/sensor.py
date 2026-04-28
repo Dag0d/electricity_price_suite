@@ -22,6 +22,25 @@ _CURRENCY_ICON_CODES = {
     "aud", "brl", "cad", "chf", "cny", "czk", "dkk", "eur", "gbp", "hkd", "inr", "jpy", "nok", "nzd", "pln", "rub", "sek", "sgd", "try", "usd",
 }
 
+_CONSUMPTION_SENSOR_SPECS: tuple[dict[str, str], ...] = (
+    {"key": "consumption_today_kwh", "translation_key": "consumption_today", "kind": "energy"},
+    {"key": "consumption_current_hour_kwh", "translation_key": "consumption_current_hour", "kind": "energy"},
+    {"key": "consumption_month_kwh", "translation_key": "consumption_month", "kind": "energy"},
+    {"key": "consumption_yesterday_kwh", "translation_key": "consumption_yesterday", "kind": "energy"},
+    {"key": "cost_today", "translation_key": "cost_today", "kind": "money"},
+    {"key": "cost_month", "translation_key": "cost_month", "kind": "money"},
+    {"key": "cost_yesterday", "translation_key": "cost_yesterday", "kind": "money"},
+    {"key": "cost_today_incl_basic_fee", "translation_key": "cost_today_incl_basic_fee", "kind": "money"},
+    {"key": "cost_month_incl_basic_fee", "translation_key": "cost_month_incl_basic_fee", "kind": "money"},
+    {"key": "cost_yesterday_incl_basic_fee", "translation_key": "cost_yesterday_incl_basic_fee", "kind": "money"},
+    {"key": "avg_paid_price_today", "translation_key": "avg_paid_price_today", "kind": "price"},
+    {"key": "avg_paid_price_month", "translation_key": "avg_paid_price_month", "kind": "price"},
+    {"key": "avg_paid_price_yesterday", "translation_key": "avg_paid_price_yesterday", "kind": "price"},
+    {"key": "avg_paid_price_last_month", "translation_key": "avg_paid_price_last_month", "kind": "price"},
+    {"key": "cost_last_month", "translation_key": "cost_last_month", "kind": "money"},
+    {"key": "cost_last_month_incl_basic_fee", "translation_key": "cost_last_month_incl_basic_fee", "kind": "money"},
+)
+
 
 def _currency_mdi_icon(currency_code: str | None) -> str:
     code = str(currency_code or "").strip().lower()
@@ -54,6 +73,17 @@ async def _async_setup_timeline_entry(runtime: TimelineRuntime, async_add_entiti
         stale_entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
         if stale_entity_id:
             registry.async_remove(stale_entity_id)
+    if runtime.has_consumption_tracking:
+        for spec in _CONSUMPTION_SENSOR_SPECS:
+            sensor = TimelineConsumptionSensor(runtime, spec["key"], spec["translation_key"], spec["kind"])
+            runtime.consumption_sensors[spec["key"]] = sensor
+            entities.append(sensor)
+    else:
+        for spec in _CONSUMPTION_SENSOR_SPECS:
+            unique_id = f"{runtime.entry.entry_id}_{spec['key']}"
+            stale_entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+            if stale_entity_id:
+                registry.async_remove(stale_entity_id)
     plan_entities: list[SensorEntity] = []
     for plan_key, payload in runtime.store.get_plans().items():
         sensor = PlanSensor(runtime, plan_key, payload)
@@ -154,8 +184,8 @@ class PlanSensor(BaseSuiteEntity, RestoreEntity):
 
     @property
     def device_info(self) -> dict[str, Any]:
-        planner_name = str(self._payload.get("planner_name", "Planung"))
-        planner_slug = str(self._payload.get("planner_slug", "planung"))
+        planner_name = str(self._payload.get("planner_name", ""))
+        planner_slug = str(self._payload.get("planner_slug", ""))
         return self.runtime.build_plan_device_info(planner_name, planner_slug)
 
     async def async_added_to_hass(self) -> None:
@@ -193,6 +223,58 @@ class CurrentPriceSensor(BaseSuiteEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {"start_time": self.runtime.latest_stats.current_price_start_time, "currency": self.runtime.currency}
+
+
+class TimelineConsumptionSensor(BaseSuiteEntity):
+    _attr_should_poll = False
+    _attr_suggested_display_precision = 4
+
+    def __init__(self, runtime: TimelineRuntime, metric_key: str, translation_key: str, kind: str) -> None:
+        super().__init__(runtime)
+        self.metric_key = metric_key
+        self._attr_translation_key = translation_key
+        self._attr_unique_id = f"{runtime.entry.entry_id}_{metric_key}"
+        self.entity_id = runtime.consumption_entity_id(metric_key)
+        if kind == "energy":
+            self._attr_device_class = SensorDeviceClass.ENERGY
+            self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+            self._attr_icon = "mdi:lightning-bolt"
+        elif kind == "money":
+            self._attr_device_class = SensorDeviceClass.MONETARY
+            self._attr_native_unit_of_measurement = runtime.currency
+            self._attr_icon = _currency_mdi_icon(runtime.currency)
+        else:
+            self._attr_native_unit_of_measurement = f"{runtime.currency}/kWh"
+            self._attr_icon = _currency_mdi_icon(runtime.currency)
+
+    @property
+    def native_value(self):
+        return self.runtime.latest_consumption_metrics.get(self.metric_key)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs = {
+            "last_updated": self.runtime.latest_consumption_metrics.get("last_updated"),
+            "consumption_energy_entity": self.runtime.latest_consumption_metrics.get("consumption_energy_entity"),
+        }
+        if self.metric_key in {
+            "avg_paid_price_today",
+            "avg_paid_price_yesterday",
+            "avg_paid_price_month",
+            "avg_paid_price_last_month",
+        }:
+            attrs["avg_price_include_basic_fee"] = self.runtime.latest_consumption_metrics.get(
+                "avg_price_include_basic_fee"
+            )
+        if self.metric_key in {
+            "cost_today_incl_basic_fee",
+            "cost_month_incl_basic_fee",
+            "cost_yesterday_incl_basic_fee",
+            "cost_last_month_incl_basic_fee",
+        }:
+            attrs["basic_fee_mode"] = self.runtime.latest_consumption_metrics.get("basic_fee_mode")
+            attrs["basic_fee_amount"] = self.runtime.latest_consumption_metrics.get("basic_fee_amount")
+        return attrs
 
 
 class TimelineStatusSensor(BaseSuiteEntity):

@@ -18,6 +18,10 @@
           "cache_retention_days": "Cache retention days",
           "round_decimals": "Round prices to decimals",
           "enable_current_price_sensor": "Enable current price sensor",
+          "consumption_energy_entity": "Consumption energy entity",
+          "basic_fee_mode": "Basic fee mode",
+          "basic_fee_amount": "Basic fee amount",
+          "avg_price_include_basic_fee": "Average price includes basic fee",
           "planner_devices": "Planner devices"
         }
       },
@@ -100,6 +104,10 @@
           "cache_retention_days": "Cache retention days",
           "round_decimals": "Round prices to decimals",
           "enable_current_price_sensor": "Enable current price sensor",
+          "consumption_energy_entity": "Consumption energy entity",
+          "basic_fee_mode": "Basic fee mode",
+          "basic_fee_amount": "Basic fee amount",
+          "avg_price_include_basic_fee": "Average price includes basic fee",
           "planner_devices": "Planner devices"
         }
       },
@@ -126,6 +134,54 @@
       },
       "status": {
         "name": "Status"
+      },
+      "consumption_today": {
+        "name": "Consumption Today"
+      },
+      "consumption_current_hour": {
+        "name": "Consumption Current Hour"
+      },
+      "consumption_month": {
+        "name": "Consumption Month"
+      },
+      "consumption_yesterday": {
+        "name": "Consumption Yesterday"
+      },
+      "cost_today": {
+        "name": "Cost Today"
+      },
+      "cost_month": {
+        "name": "Cost Month"
+      },
+      "cost_yesterday": {
+        "name": "Cost Yesterday"
+      },
+      "cost_today_incl_basic_fee": {
+        "name": "Cost Today incl. Basic Fee"
+      },
+      "cost_month_incl_basic_fee": {
+        "name": "Cost Month incl. Basic Fee"
+      },
+      "cost_yesterday_incl_basic_fee": {
+        "name": "Cost Yesterday incl. Basic Fee"
+      },
+      "avg_paid_price_today": {
+        "name": "Average Paid Price Today"
+      },
+      "avg_paid_price_month": {
+        "name": "Average Paid Price Month"
+      },
+      "avg_paid_price_yesterday": {
+        "name": "Average Paid Price Yesterday"
+      },
+      "avg_paid_price_last_month": {
+        "name": "Average Paid Price Last Month"
+      },
+      "cost_last_month": {
+        "name": "Cost Last Month"
+      },
+      "cost_last_month_incl_basic_fee": {
+        "name": "Cost Last Month incl. Basic Fee"
       }
     }
   },
