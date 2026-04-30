@@ -1380,7 +1380,7 @@ class TimelineRuntime:
         return filter_today_tomorrow_slots(slots, self.timezone)
 
     def _missing_today_tomorrow_primary(self) -> tuple[bool, bool]:
-        return missing_today_tomorrow_primary(self.store.get_slots(), self.timezone)
+        return missing_today_tomorrow_primary(self.store.get_slots(), self.timezone, self.billing_slot_minutes)
 
     def _filter_slots_for_missing_days(
         self,
@@ -1528,10 +1528,10 @@ class TimelineRuntime:
         self._schedule_next_consumption_sample()
 
     def _has_primary_tomorrow_rows(self) -> bool:
-        return has_primary_tomorrow_rows(self.store.get_slots(), self.timezone)
+        return has_primary_tomorrow_rows(self.store.get_slots(), self.timezone, self.billing_slot_minutes)
 
     def _pending_primary(self) -> bool:
-        return pending_primary(self.store.get_slots(), self.timezone)
+        return pending_primary(self.store.get_slots(), self.timezone, self.billing_slot_minutes)
 
     def _create_plan_sensor(self, plan_key: str, payload: PlanPayload):
         from .sensor import PlanSensor

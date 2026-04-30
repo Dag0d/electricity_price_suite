@@ -452,33 +452,55 @@ async def _fetch_entsoe(hass: HomeAssistant, source: dict) -> list[dict[str, Any
     rows: list[dict[str, Any]] = []
     requested_resolution = "PT15M" if requested_duration == 15 else "PT60M"
     quarter_rows: list[dict[str, Any]] = []
-    for period in root.findall(".//ns:TimeSeries/ns:Period", _ENTSOE_XML_NS):
-        period_start_raw = period.findtext("ns:timeInterval/ns:start", namespaces=_ENTSOE_XML_NS)
-        resolution_raw = period.findtext("ns:resolution", namespaces=_ENTSOE_XML_NS)
-        period_start = parse_iso_aware(period_start_raw)
-        if period_start is None or resolution_raw is None:
-            continue
-        if resolution_raw not in {"PT15M", "PT60M"}:
-            continue
-        source_minutes = _slot_minutes_from_resolution(resolution_raw)
+    all_time_series = root.findall(".//ns:TimeSeries", _ENTSOE_XML_NS)
+    filtered_time_series: list[ET.Element] = []
+    saw_sequence_marker = False
 
-        for point in period.findall("ns:Point", _ENTSOE_XML_NS):
-            position_raw = point.findtext("ns:position", namespaces=_ENTSOE_XML_NS)
-            amount_raw = point.findtext("ns:price.amount", namespaces=_ENTSOE_XML_NS)
-            try:
-                position = int(position_raw or "")
-                amount = float(amount_raw or "")
-            except (TypeError, ValueError):
+    for time_series in all_time_series:
+        sequence_number = (
+            time_series.findtext(
+                "ns:classificationSequence_AttributeInstanceComponent.position",
+                namespaces=_ENTSOE_XML_NS,
+            )
+            or time_series.findtext("ns:sequenceNumber", namespaces=_ENTSOE_XML_NS)
+            or ""
+        ).strip()
+        if sequence_number:
+            saw_sequence_marker = True
+        if sequence_number == "1":
+            filtered_time_series.append(time_series)
+
+    time_series_list = filtered_time_series if saw_sequence_marker else all_time_series
+
+    for time_series in time_series_list:
+        
+        for period in time_series.findall("ns:Period", _ENTSOE_XML_NS):
+            period_start_raw = period.findtext("ns:timeInterval/ns:start", namespaces=_ENTSOE_XML_NS)
+            resolution_raw = period.findtext("ns:resolution", namespaces=_ENTSOE_XML_NS)
+            period_start = parse_iso_aware(period_start_raw)
+            if period_start is None or resolution_raw is None:
                 continue
-            start_time = period_start + timedelta(minutes=source_minutes * (position - 1))
-            entry = {
-                "start_time": format_iso(start_time),
-                "market_price_per_kwh": amount / 1000.0,
-            }
-            if resolution_raw == requested_resolution:
-                rows.append(entry)
-            elif requested_duration == 60 and resolution_raw == "PT15M":
-                quarter_rows.append(entry)
+            if resolution_raw not in {"PT15M", "PT60M"}:
+                continue
+            source_minutes = _slot_minutes_from_resolution(resolution_raw)
+
+            for point in period.findall("ns:Point", _ENTSOE_XML_NS):
+                position_raw = point.findtext("ns:position", namespaces=_ENTSOE_XML_NS)
+                amount_raw = point.findtext("ns:price.amount", namespaces=_ENTSOE_XML_NS)
+                try:
+                    position = int(position_raw or "")
+                    amount = float(amount_raw or "")
+                except (TypeError, ValueError):
+                    continue
+                start_time = period_start + timedelta(minutes=source_minutes * (position - 1))
+                entry = {
+                    "start_time": format_iso(start_time),
+                    "market_price_per_kwh": amount / 1000.0,
+                }
+                if resolution_raw == requested_resolution:
+                    rows.append(entry)
+                elif requested_duration == 60 and resolution_raw == "PT15M":
+                    quarter_rows.append(entry)
 
     if not rows:
         if requested_duration == 60 and quarter_rows:

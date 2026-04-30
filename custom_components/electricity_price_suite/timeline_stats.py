@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -56,28 +56,64 @@ def filter_today_tomorrow_slots(slots: list[SlotRecord], timezone_name: str) -> 
     ]
 
 
-def missing_today_tomorrow_primary(rows: list[SlotRow], timezone_name: str) -> tuple[bool, bool]:
-    """Return whether primary rows are missing for today and tomorrow."""
+def expected_slots_for_day(target_day: date, tz: ZoneInfo, slot_minutes: int) -> int:
+    """Return the expected slot count for one local day, including DST shifts."""
+
+    start = datetime.combine(target_day, datetime.min.time(), tzinfo=tz)
+    end = datetime.combine(target_day + timedelta(days=1), datetime.min.time(), tzinfo=tz)
+    minutes = int(round((end.astimezone(timezone.utc) - start.astimezone(timezone.utc)).total_seconds() / 60.0))
+    return max(1, minutes // max(1, slot_minutes))
+
+
+def day_slot_count(
+    rows: list[SlotRow],
+    target_day: date,
+    tz: ZoneInfo,
+    *,
+    primary_only: bool = False,
+) -> int:
+    """Return the unique slot count for one local day."""
+
+    unique: set[str] = set()
+    for row in rows:
+        if primary_only and not bool(row.get("is_primary_source")):
+            continue
+        dt = parse_iso_local(row["start_time"], tz)
+        if dt is not None and dt.date() == target_day:
+            unique.add(row["start_time"])
+    return len(unique)
+
+
+def day_is_complete(
+    rows: list[SlotRow],
+    target_day: date,
+    tz: ZoneInfo,
+    slot_minutes: int,
+    *,
+    primary_only: bool = False,
+) -> bool:
+    """Return whether one local day has a complete slot set."""
+
+    return day_slot_count(rows, target_day, tz, primary_only=primary_only) >= expected_slots_for_day(
+        target_day,
+        tz,
+        slot_minutes,
+    )
+
+
+def missing_today_tomorrow_primary(
+    rows: list[SlotRow],
+    timezone_name: str,
+    slot_minutes: int,
+) -> tuple[bool, bool]:
+    """Return whether complete primary rows are missing for today and tomorrow."""
 
     tz = ZoneInfo(timezone_name)
     today = datetime.now(tz).date()
     tomorrow = today + timedelta(days=1)
-    has_primary_today = False
-    has_primary_tomorrow = False
 
-    for row in rows:
-        if not bool(row.get("is_primary_source")):
-            continue
-        dt = parse_iso_local(row["start_time"], tz)
-        if dt is None:
-            continue
-        if dt.date() == today:
-            has_primary_today = True
-        elif dt.date() == tomorrow:
-            has_primary_tomorrow = True
-        if has_primary_today and has_primary_tomorrow:
-            break
-
+    has_primary_today = day_is_complete(rows, today, tz, slot_minutes, primary_only=True)
+    has_primary_tomorrow = day_is_complete(rows, tomorrow, tz, slot_minutes, primary_only=True)
     return (not has_primary_today, not has_primary_tomorrow)
 
 
@@ -107,31 +143,28 @@ def filter_slots_for_missing_days(
     return filtered
 
 
-def has_primary_tomorrow_rows(rows: list[SlotRow], timezone_name: str) -> bool:
-    """Return whether tomorrow currently has at least one primary row."""
+def has_primary_tomorrow_rows(rows: list[SlotRow], timezone_name: str, slot_minutes: int) -> bool:
+    """Return whether tomorrow currently has a complete primary slot set."""
 
     tz = ZoneInfo(timezone_name)
     tomorrow = datetime.now(tz).date() + timedelta(days=1)
-    for row in rows:
-        dt = parse_iso_local(row["start_time"], tz)
-        if dt is None or dt.date() != tomorrow:
-            continue
-        if bool(row.get("is_primary_source")):
-            return True
-    return False
+    return day_is_complete(rows, tomorrow, tz, slot_minutes, primary_only=True)
 
 
-def pending_primary(rows: list[SlotRow], timezone_name: str) -> bool:
-    """Return whether today/tomorrow still contain fallback rows."""
+def pending_primary(rows: list[SlotRow], timezone_name: str, slot_minutes: int) -> bool:
+    """Return whether today or tomorrow are complete only via fallback data."""
 
     tz = ZoneInfo(timezone_name)
     today = datetime.now(tz).date()
     tomorrow = today + timedelta(days=1)
-    for row in rows:
-        dt = parse_iso_local(row["start_time"], tz)
-        if dt is None or dt.date() not in {today, tomorrow}:
-            continue
-        if not bool(row.get("is_primary_source")):
+    for target_day in (today, tomorrow):
+        if day_is_complete(rows, target_day, tz, slot_minutes) and not day_is_complete(
+            rows,
+            target_day,
+            tz,
+            slot_minutes,
+            primary_only=True,
+        ):
             return True
     return False
 
@@ -219,10 +252,12 @@ def build_timeline_stats(
         past_7.extend(weighted)
 
     avg_today = weighted_avg(w_today)
-    tomorrow_primary = has_primary_tomorrow_rows(all_rows, timezone_name)
+    today_complete = day_is_complete(all_rows, today, tz, detected_slot_minutes)
+    tomorrow_complete = day_is_complete(all_rows, tomorrow, tz, detected_slot_minutes)
+    tomorrow_primary = has_primary_tomorrow_rows(all_rows, timezone_name, detected_slot_minutes)
     timeline_state = compute_timeline_status(
-        today_rows=len(today_rows),
-        tomorrow_rows=len(tomorrow_rows),
+        today_complete=today_complete,
+        tomorrow_complete=tomorrow_complete,
         has_primary_tomorrow=tomorrow_primary,
     )
 
@@ -251,8 +286,12 @@ def build_timeline_stats(
         "p70_last_7d": round_value(weighted_q(past_7, 0.7) if past_7 else None, round_decimals),
         "today_rows": len(today_rows),
         "tomorrow_rows": len(tomorrow_rows),
-        "tomorrow_status": "ok" if tomorrow_rows else "absent",
-        "pending_primary": pending_primary(all_rows, timezone_name),
+        "expected_today_rows": expected_slots_for_day(today, tz, detected_slot_minutes),
+        "expected_tomorrow_rows": expected_slots_for_day(tomorrow, tz, detected_slot_minutes),
+        "today_complete": today_complete,
+        "tomorrow_complete": tomorrow_complete,
+        "tomorrow_status": "ok" if tomorrow_complete else ("partial" if tomorrow_rows else "absent"),
+        "pending_primary": pending_primary(all_rows, timezone_name, detected_slot_minutes),
         "last_primary_refresh_at": store.last_primary_refresh_at,
         "last_source_chain_fetch_at": store.last_source_chain_fetch_at,
         "last_successful_source_id": store.last_successful_source_id,
@@ -276,16 +315,16 @@ def build_timeline_stats(
     )
 
 
-def compute_timeline_status(*, today_rows: int, tomorrow_rows: int, has_primary_tomorrow: bool) -> str:
+def compute_timeline_status(*, today_complete: bool, tomorrow_complete: bool, has_primary_tomorrow: bool) -> str:
     """Compute the high-level timeline status."""
 
-    if today_rows <= 0 and tomorrow_rows <= 0:
+    if not today_complete and not tomorrow_complete:
         return "no_data"
-    if today_rows > 0 and tomorrow_rows <= 0:
+    if today_complete and not tomorrow_complete:
         return "today_only"
-    if today_rows <= 0 and tomorrow_rows > 0:
+    if not today_complete and tomorrow_complete:
         return "tomorrow_only"
-    if tomorrow_rows > 0 and not has_primary_tomorrow:
+    if tomorrow_complete and not has_primary_tomorrow:
         return "tomorrow_not_from_provider_1"
     return "today_and_tomorrow"
 

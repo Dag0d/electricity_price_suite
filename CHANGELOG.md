@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.6 - 2026-04-30
+
+### Fixed
+- Tightened day completeness handling for timeline status and refresh decisions so `today` and `tomorrow` are only treated as present when the full expected slot set exists for the configured billing resolution.
+- The expected slot count is now derived from the actual local day length, so DST days are handled correctly with `92/100` quarter-hour slots or `23/25` hourly slots.
+- Updated the ENTSO-E parser to prefer the SDAC day-ahead sequence by filtering `classificationSequence_AttributeInstanceComponent.position == 1` and falling back to `sequenceNumber == 1` when present.
+
 ## 2026.4.5 - 2026-04-30
 
 ### Changed
