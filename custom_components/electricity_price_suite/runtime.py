@@ -444,15 +444,18 @@ class TimelineRuntime:
                 continue
 
             slots, attempt = await fetch_from_source(self.hass, source)
-            attempt_log.append(attempt.to_dict())
             fetched_source_chain = True
             self.store.set_source_health(str(source.get("id")), attempt.success, attempt.reason)
 
             if not slots:
+                attempt_log.append(attempt.to_dict())
                 continue
 
             if only_today_tomorrow:
                 slots = self._filter_today_tomorrow_slots(slots)
+            filtered_attempt = attempt.to_dict()
+            filtered_attempt["rows"] = len(slots)
+            attempt_log.append(filtered_attempt)
             if not slots:
                 continue
 
@@ -465,14 +468,14 @@ class TimelineRuntime:
                     continue
 
             used_source = str(source.get("id"))
-            used_sources.append(used_source)
             merged = self.store.upsert_slots(slots)
             for key in merged_debug:
                 merged_debug[key] += merged[key]
-            self.store.set_last_successful_source(used_source)
-            if int(source.get("priority", 9999)) == 0:
-                self.store.set_last_primary_refresh()
-
+            if merged["inserted"] > 0 or merged["replaced"] > 0:
+                self.store.set_last_successful_source(used_source)
+                used_sources.append(used_source)
+                if int(source.get("priority", 9999)) == 0:
+                    self.store.set_last_primary_refresh()
             need_today, need_tomorrow = self._missing_today_tomorrow_primary()
 
         self.store.purge_old_slots(self.timezone)

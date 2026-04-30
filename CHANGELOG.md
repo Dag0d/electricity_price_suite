@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.9 - 2026-04-30
+
+### Fixed
+- Updated the ENTSO-E A03 parser to expand omitted equal-price positions both between reported points and from the last reported point through the end of the period, matching the platform's variable-block curve semantics.
+- Tightened provider refresh bookkeeping so `attempt_log.rows` now reflects the filtered `today`/`tomorrow` slots actually considered by the timeline rather than raw API payload size.
+- Only mark a provider as the last successful/used source when its slots actually improve the stored timeline by inserting or replacing rows.
+
 ## 2026.4.8 - 2026-04-30
 
 ### Fixed

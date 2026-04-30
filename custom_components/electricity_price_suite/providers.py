@@ -227,6 +227,62 @@ def _slot_minutes_from_resolution(resolution: str) -> int:
     raise ValueError(f"unsupported_resolution:{resolution}")
 
 
+def _append_entsoe_period_rows(
+    target_rows: list[dict[str, Any]],
+    *,
+    period_start: datetime,
+    period_end: datetime,
+    source_minutes: int,
+    curve_type: str,
+    points: list[ET.Element],
+) -> None:
+    """Append ENTSO-E period rows, filling omitted equal-price positions."""
+
+    previous_position: int | None = None
+    previous_amount: float | None = None
+
+    for point in points:
+        position_raw = point.findtext("ns:position", namespaces=_ENTSOE_XML_NS)
+        amount_raw = point.findtext("ns:price.amount", namespaces=_ENTSOE_XML_NS)
+        try:
+            position = int(position_raw or "")
+            amount = float(amount_raw or "")
+        except (TypeError, ValueError):
+            continue
+
+        if previous_position is not None and previous_amount is not None and position > previous_position + 1:
+            for missing_position in range(previous_position + 1, position):
+                missing_start = period_start + timedelta(minutes=source_minutes * (missing_position - 1))
+                target_rows.append(
+                    {
+                        "start_time": format_iso(missing_start),
+                        "market_price_per_kwh": previous_amount / 1000.0,
+                    }
+                )
+
+        start_time = period_start + timedelta(minutes=source_minutes * (position - 1))
+        target_rows.append(
+            {
+                "start_time": format_iso(start_time),
+                "market_price_per_kwh": amount / 1000.0,
+            }
+        )
+        previous_position = position
+        previous_amount = amount
+
+    if curve_type == "A03" and previous_position is not None and previous_amount is not None:
+        expected_positions = int((period_end - period_start).total_seconds() // (source_minutes * 60))
+        if expected_positions > previous_position:
+            for missing_position in range(previous_position + 1, expected_positions + 1):
+                missing_start = period_start + timedelta(minutes=source_minutes * (missing_position - 1))
+                target_rows.append(
+                    {
+                        "start_time": format_iso(missing_start),
+                        "market_price_per_kwh": previous_amount / 1000.0,
+                    }
+                )
+
+
 def normalize_slots(raw_slots: Any, source: dict) -> list[SlotRecord]:
     if not isinstance(raw_slots, list):
         return []
@@ -476,31 +532,29 @@ async def _fetch_entsoe(hass: HomeAssistant, source: dict) -> list[dict[str, Any
         
         for period in time_series.findall("ns:Period", _ENTSOE_XML_NS):
             period_start_raw = period.findtext("ns:timeInterval/ns:start", namespaces=_ENTSOE_XML_NS)
+            period_end_raw = period.findtext("ns:timeInterval/ns:end", namespaces=_ENTSOE_XML_NS)
             resolution_raw = period.findtext("ns:resolution", namespaces=_ENTSOE_XML_NS)
             period_start = parse_iso_aware(period_start_raw)
-            if period_start is None or resolution_raw is None:
+            period_end = parse_iso_aware(period_end_raw)
+            curve_type = (time_series.findtext("ns:curveType", namespaces=_ENTSOE_XML_NS) or "").strip()
+            if period_start is None or period_end is None or resolution_raw is None:
                 continue
             if resolution_raw not in {"PT15M", "PT60M"}:
                 continue
             source_minutes = _slot_minutes_from_resolution(resolution_raw)
-
-            for point in period.findall("ns:Point", _ENTSOE_XML_NS):
-                position_raw = point.findtext("ns:position", namespaces=_ENTSOE_XML_NS)
-                amount_raw = point.findtext("ns:price.amount", namespaces=_ENTSOE_XML_NS)
-                try:
-                    position = int(position_raw or "")
-                    amount = float(amount_raw or "")
-                except (TypeError, ValueError):
-                    continue
-                start_time = period_start + timedelta(minutes=source_minutes * (position - 1))
-                entry = {
-                    "start_time": format_iso(start_time),
-                    "market_price_per_kwh": amount / 1000.0,
-                }
-                if resolution_raw == requested_resolution:
-                    rows.append(entry)
-                elif requested_duration == 60 and resolution_raw == "PT15M":
-                    quarter_rows.append(entry)
+            expanded_rows: list[dict[str, Any]] = []
+            _append_entsoe_period_rows(
+                expanded_rows,
+                period_start=period_start,
+                period_end=period_end,
+                source_minutes=source_minutes,
+                curve_type=curve_type,
+                points=period.findall("ns:Point", _ENTSOE_XML_NS),
+            )
+            if resolution_raw == requested_resolution:
+                rows.extend(expanded_rows)
+            elif requested_duration == 60 and resolution_raw == "PT15M":
+                quarter_rows.extend(expanded_rows)
 
     if not rows:
         if requested_duration == 60 and quarter_rows:
