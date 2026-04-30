@@ -185,6 +185,18 @@ class TimelineStore:
         existing["price_per_kwh"] = float(price_per_kwh) if price_per_kwh is not None else existing.get("price_per_kwh")
         existing["observed_at"] = utc_now_iso()
 
+    def purge_unpriced_consumption_slots(self) -> int:
+        consumption = self._data.setdefault("consumption", {})
+        by_start: dict[str, ConsumptionSlotRow] = consumption.setdefault("slots", {})
+        remove_keys = [
+            key
+            for key, row in by_start.items()
+            if row.get("price_per_kwh") is None and row.get("energy_cost") is None
+        ]
+        for key in remove_keys:
+            by_start.pop(key, None)
+        return len(remove_keys)
+
     def purge_old_consumption_slots(self, timezone_name: str, retention_days: int) -> int:
         tz = ZoneInfo(timezone_name)
         cutoff_date = (datetime.now(tz) - timedelta(days=retention_days)).date()

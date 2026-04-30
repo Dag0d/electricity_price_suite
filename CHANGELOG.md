@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.4 - 2026-04-30
+
+### Changed
+- Increased the automatic provider polling cadence for `today_only` timelines to every 15 minutes from `12:01` onward (`:01`, `:16`, `:31`, `:46`) so tomorrow prices are picked up faster once providers begin publishing them.
+
+### Fixed
+- Stopped persisting unpriced 30-second consumption fallback rows in the timeline store.
+- Added startup cleanup that removes already persisted unpriced consumption fallback rows from existing timeline stores.
+
 ## 2026.4.3 - 2026-04-30
 
 ### Changed

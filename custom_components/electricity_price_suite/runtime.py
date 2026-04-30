@@ -292,6 +292,7 @@ class TimelineRuntime:
     async def async_initialize(self) -> None:
         await self.store.async_load()
         sources_changed = False
+        pruned_unpriced_consumption = self.store.purge_unpriced_consumption_slots()
         for source in self.store.get_sources():
             if source.get("type") in _DIRECT_PROVIDER_TYPES and source.get("slot_mapping") == _DEFAULT_SLOT_MAPPING:
                 normalized = dict(source)
@@ -302,7 +303,7 @@ class TimelineRuntime:
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
             sources_changed = True
-        if sources_changed:
+        if sources_changed or pruned_unpriced_consumption:
             await self.store.async_save()
         await self._rebuild_from_store()
         await self._async_update_consumption_metrics(sample_now=True)
@@ -1255,15 +1256,12 @@ class TimelineRuntime:
 
         remaining_seconds = max(total_seconds - booked_seconds, 0.0)
         if remaining_seconds > 0:
-            remaining_share = delta_kwh * (remaining_seconds / total_seconds)
-            self.store.add_consumption_slot(
-                start_time=format_iso(start, timespec="seconds"),
-                end_time=format_iso(end, timespec="seconds"),
-                consumption_kwh=remaining_share,
-                price_per_kwh=None,
-                energy_cost=None,
+            _LOGGER.debug(
+                "skipped unpriced consumption remainder for %s: %.6f kWh over %.1f seconds",
+                self.timeline_slug,
+                delta_kwh * (remaining_seconds / total_seconds),
+                remaining_seconds,
             )
-            booked = True
         return booked
 
     async def _async_update_consumption_metrics(self, *, sample_now: bool) -> None:
@@ -1480,7 +1478,7 @@ class TimelineRuntime:
             end_window = now.replace(hour=23, minute=31, second=0, microsecond=0)
             if now > end_window:
                 return (now + timedelta(days=1)).replace(hour=12, minute=1, second=0, microsecond=0)
-            return next_minute_mark((1, 31), now)
+            return next_minute_mark((1, 16, 31, 46), now)
 
         if status == "tomorrow_not_from_provider_1":
             return next_minute_mark((1,), now)
