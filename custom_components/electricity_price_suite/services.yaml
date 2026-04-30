@@ -69,6 +69,12 @@ migrate_timeline_storage:
       example: "true"
       selector:
         boolean: {}
+    preserve_last_snapshot:
+      required: false
+      description: Keep the last consumption snapshot while clearing consumption data so the next sample can continue delta tracking after midnight resets.
+      example: "true"
+      selector:
+        boolean: {}
     dry_run:
       required: false
       description: Preview what would be cleaned or preserved without writing changes.

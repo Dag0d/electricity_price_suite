@@ -331,6 +331,7 @@ class TimelineStore:
         clear_slots: bool,
         clear_sources: bool,
         clear_consumption: bool,
+        preserve_last_snapshot: bool,
         dry_run: bool = False,
     ) -> dict[str, int]:
         result = {
@@ -339,6 +340,7 @@ class TimelineStore:
             "cleared_consumption_slots": 0,
             "cleared_consumption_monthly_rollups": 0,
             "cleared_source_health": 0,
+            "preserved_last_snapshot": 0,
         }
 
         if clear_slots:
@@ -359,8 +361,12 @@ class TimelineStore:
             monthly_rollups = consumption.setdefault("monthly_rollups", {})
             result["cleared_consumption_slots"] = len(slot_rows)
             result["cleared_consumption_monthly_rollups"] = len(monthly_rollups)
+            last_snapshot = consumption.get("last_snapshot")
+            if preserve_last_snapshot and isinstance(last_snapshot, dict):
+                result["preserved_last_snapshot"] = 1
             if not dry_run:
-                consumption["last_snapshot"] = None
+                if not preserve_last_snapshot:
+                    consumption["last_snapshot"] = None
                 consumption["slots"] = {}
                 consumption["monthly_rollups"] = {}
                 consumption["power_day"] = None

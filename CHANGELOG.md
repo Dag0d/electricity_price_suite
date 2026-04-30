@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.10 - 2026-04-30
+
+### Fixed
+- Consumption sampling no longer performs an immediate delta booking during integration startup; the first real reading now waits for the next hard `:00` or `:30` wall-clock boundary.
+- Added `preserve_last_snapshot` to the `migrate_timeline_storage` service so one-time midnight cleanups can wipe consumption data while intentionally keeping or dropping the last meter snapshot.
+
 ## 2026.4.9 - 2026-04-30
 
 ### Fixed

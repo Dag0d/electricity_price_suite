@@ -311,7 +311,10 @@ class TimelineRuntime:
         if sources_changed or pruned_unpriced_consumption or normalized_slot_timezones:
             await self.store.async_save()
         await self._rebuild_from_store()
-        await self._async_update_consumption_metrics(sample_now=True)
+        if self.has_consumption_tracking:
+            self.latest_consumption_metrics = self._compute_consumption_metrics()
+        else:
+            self.latest_consumption_metrics = {}
         self._schedule_next_time_update()
         self._schedule_next_poll_update()
         self._schedule_next_consumption_sample()
@@ -604,6 +607,7 @@ class TimelineRuntime:
         clear_sources: bool,
         clear_slots: bool,
         clear_consumption: bool,
+        preserve_last_snapshot: bool,
         dry_run: bool,
     ) -> dict[str, Any]:
         fallback_planner_name = str(planner_name or "").strip() or (
@@ -657,6 +661,7 @@ class TimelineRuntime:
             clear_slots=clear_slots,
             clear_sources=clear_sources,
             clear_consumption=clear_consumption,
+            preserve_last_snapshot=preserve_last_snapshot,
             dry_run=dry_run,
         )
         summary.update(

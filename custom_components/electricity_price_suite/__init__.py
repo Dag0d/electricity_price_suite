@@ -53,6 +53,7 @@ MIGRATE_TIMELINE_STORAGE_SCHEMA = vol.Schema({
     vol.Optional("clear_sources", default=True): cv.boolean,
     vol.Optional("clear_slots", default=True): cv.boolean,
     vol.Optional("clear_consumption", default=True): cv.boolean,
+    vol.Optional("preserve_last_snapshot", default=False): cv.boolean,
     vol.Optional("dry_run", default=False): cv.boolean,
 })
 INJECT_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required(ATTR_SLOTS): [dict], vol.Optional("source_name", default="manual_inject"): cv.string, vol.Optional("source_priority", default=9999): vol.Coerce(int), vol.Optional("is_primary", default=False): cv.boolean, vol.Optional("overwrite", default=False): cv.boolean})
@@ -178,6 +179,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             clear_sources=bool(call.data["clear_sources"]),
             clear_slots=bool(call.data["clear_slots"]),
             clear_consumption=bool(call.data["clear_consumption"]),
+            preserve_last_snapshot=bool(call.data["preserve_last_snapshot"]),
             dry_run=bool(call.data["dry_run"]),
         )
         _write_timeline_entities(runtime)
