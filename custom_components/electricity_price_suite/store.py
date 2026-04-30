@@ -12,7 +12,8 @@ from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
 from .consumption_stats import month_key
 from .models import (
     ConsumptionMonthlyRollup,
-    ConsumptionPowerSampleRow,
+    ConsumptionPowerActiveBlock,
+    ConsumptionPowerBucketRow,
     ConsumptionSlotRow,
     PlanPayload,
     SlotRecord,
@@ -43,8 +44,8 @@ class TimelineStore:
                 "last_snapshot": None,
                 "slots": {},
                 "monthly_rollups": {},
-                "power_day": None,
-                "power_samples": {},
+                "power_buckets": {},
+                "power_active_block": None,
             },
         }
 
@@ -55,6 +56,19 @@ class TimelineStore:
 
     async def async_save(self) -> None:
         await self._store.async_save(self._data)
+
+    def normalize_power_storage(self) -> int:
+        consumption = self._data.setdefault("consumption", {})
+        changed = 0
+        if "power_samples" in consumption:
+            consumption.pop("power_samples", None)
+            changed += 1
+        if "power_day" in consumption:
+            consumption.pop("power_day", None)
+            changed += 1
+        consumption.setdefault("power_buckets", {})
+        consumption.setdefault("power_active_block", None)
+        return changed
 
     def set_source_health(self, source_id: str, healthy: bool, reason: str | None) -> None:
         self._data.setdefault("source_health", {})[source_id] = {
@@ -189,13 +203,19 @@ class TimelineStore:
     def get_consumption_last_snapshot(self) -> dict | None:
         return self._data.setdefault("consumption", {}).get("last_snapshot")
 
-    def get_consumption_power_samples(self) -> list[ConsumptionPowerSampleRow]:
-        by_start: dict[str, ConsumptionPowerSampleRow] = self._data.setdefault("consumption", {}).setdefault(
-            "power_samples", {}
+    def get_consumption_power_buckets(self) -> list[ConsumptionPowerBucketRow]:
+        by_start: dict[str, ConsumptionPowerBucketRow] = self._data.setdefault("consumption", {}).setdefault(
+            "power_buckets", {}
         )
         rows = list(by_start.values())
         rows.sort(key=lambda item: item["start_time"])
         return rows
+
+    def get_consumption_power_active_block(self) -> ConsumptionPowerActiveBlock | None:
+        value = self._data.setdefault("consumption", {}).get("power_active_block")
+        if isinstance(value, dict):
+            return dict(value)
+        return None
 
     def set_consumption_last_snapshot(self, *, taken_at: str, energy_kwh: float) -> None:
         self._data.setdefault("consumption", {})["last_snapshot"] = {
@@ -203,21 +223,31 @@ class TimelineStore:
             "energy_kwh": float(energy_kwh),
         }
 
-    def add_consumption_power_sample(
+    def set_consumption_power_active_block(
+        self,
+        *,
+        block: ConsumptionPowerActiveBlock | None,
+    ) -> None:
+        consumption = self._data.setdefault("consumption", {})
+        consumption["power_active_block"] = dict(block) if isinstance(block, dict) else None
+
+    def add_consumption_power_bucket(
         self,
         *,
         start_time: str,
         end_time: str,
-        duration_seconds: float,
-        power_w: float,
+        avg_power_w: float,
+        max_power_w: float,
+        min_5m_power_w: float,
     ) -> None:
         consumption = self._data.setdefault("consumption", {})
-        by_start: dict[str, ConsumptionPowerSampleRow] = consumption.setdefault("power_samples", {})
+        by_start: dict[str, ConsumptionPowerBucketRow] = consumption.setdefault("power_buckets", {})
         by_start[start_time] = {
             "start_time": start_time,
             "end_time": end_time,
-            "duration_seconds": float(duration_seconds),
-            "power_w": float(power_w),
+            "avg_power_w": float(avg_power_w),
+            "max_power_w": float(max_power_w),
+            "min_5m_power_w": float(min_5m_power_w),
             "observed_at": utc_now_iso(),
         }
 
@@ -310,11 +340,11 @@ class TimelineStore:
 
         return len(remove_keys)
 
-    def purge_old_power_samples(self, timezone_name: str, retention_hours: int) -> int:
+    def purge_old_power_buckets(self, timezone_name: str, retention_hours: int) -> int:
         tz = ZoneInfo(timezone_name)
         cutoff = datetime.now(tz) - timedelta(hours=retention_hours)
         consumption = self._data.setdefault("consumption", {})
-        by_start: dict[str, ConsumptionPowerSampleRow] = consumption.setdefault("power_samples", {})
+        by_start: dict[str, ConsumptionPowerBucketRow] = consumption.setdefault("power_buckets", {})
         remove_keys: list[str] = []
         for key, row in by_start.items():
             end_dt = parse_iso_aware(row.get("end_time") or key)
@@ -389,8 +419,8 @@ class TimelineStore:
                     consumption["last_snapshot"] = None
                 consumption["slots"] = {}
                 consumption["monthly_rollups"] = {}
-                consumption["power_day"] = None
-                consumption["power_samples"] = {}
+                consumption["power_buckets"] = {}
+                consumption["power_active_block"] = None
 
         source_health = self._data.setdefault("source_health", {})
         result["cleared_source_health"] = len(source_health)

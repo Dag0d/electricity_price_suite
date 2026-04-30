@@ -60,13 +60,27 @@ class ConsumptionMonthlyRollup(TypedDict):
     updated_at: str
 
 
-class ConsumptionPowerSampleRow(TypedDict):
-    """Persisted power sample derived from one energy-delta interval."""
+class ConsumptionPowerBucketRow(TypedDict):
+    """Persisted compact 15-minute power bucket."""
 
     start_time: str
     end_time: str
-    duration_seconds: float
-    power_w: float
+    avg_power_w: float
+    max_power_w: float
+    min_5m_power_w: float
+    observed_at: str
+
+
+class ConsumptionPowerActiveBlock(TypedDict):
+    """Persisted in-progress 15-minute power aggregation block."""
+
+    start_time: str
+    end_time: str
+    energy_kwh_total: float
+    duration_seconds_total: float
+    max_power_w: float
+    min_5m_power_w: float | None
+    window_stats: dict[str, dict[str, float]]
     observed_at: str
 
 

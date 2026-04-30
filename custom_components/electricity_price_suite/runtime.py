@@ -296,6 +296,7 @@ class TimelineRuntime:
     async def async_initialize(self) -> None:
         await self.store.async_load()
         normalized_slot_timezones = self.store.normalize_slot_timezones(self.timezone)
+        normalized_power_storage = self.store.normalize_power_storage()
         sources_changed = False
         pruned_unpriced_consumption = self.store.purge_unpriced_consumption_slots()
         for source in self.store.get_sources():
@@ -308,7 +309,7 @@ class TimelineRuntime:
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
             sources_changed = True
-        if sources_changed or pruned_unpriced_consumption or normalized_slot_timezones:
+        if sources_changed or pruned_unpriced_consumption or normalized_slot_timezones or normalized_power_storage:
             await self.store.async_save()
         await self._rebuild_from_store()
         if self.has_consumption_tracking:
@@ -1340,10 +1341,10 @@ class TimelineRuntime:
                 duration_seconds = max((now - prev_taken).total_seconds(), 0.0)
                 if duration_seconds > 0 and delta >= 0:
                     power_w = (delta * 1000.0) / (duration_seconds / 3600.0)
-                    self.store.add_consumption_power_sample(
-                        start_time=format_iso(prev_taken, timespec="seconds"),
-                        end_time=format_iso(now, timespec="seconds"),
-                        duration_seconds=duration_seconds,
+                    self._aggregate_power_interval(
+                        start=prev_taken,
+                        end=now,
+                        delta_kwh=delta,
                         power_w=power_w,
                     )
                 if delta > 0:
@@ -1357,7 +1358,7 @@ class TimelineRuntime:
             self.timezone,
             DEFAULT_CONSUMPTION_RETENTION_DAYS,
         )
-        self.store.purge_old_power_samples(
+        self.store.purge_old_power_buckets(
             self.timezone,
             26,
         )
@@ -1424,7 +1425,8 @@ class TimelineRuntime:
         return build_consumption_metrics(
             slots=self.store.get_consumption_slots(),
             monthly_rollups=self.store.get_consumption_monthly_rollups(),
-            power_samples=self.store.get_consumption_power_samples(),
+            power_buckets=self.store.get_consumption_power_buckets(),
+            power_active_block=self.store.get_consumption_power_active_block(),
             timezone_name=self.timezone,
             round_decimals=self.round_decimals,
             fixed_fee_monthly_amount=self.fixed_fee_monthly_amount,
@@ -1435,6 +1437,109 @@ class TimelineRuntime:
             avg_price_include_basic_fee=self.avg_price_include_basic_fee,
             consumption_energy_entity=self.consumption_energy_entity,
         )
+
+    def _floor_to_minutes(self, dt_value: datetime, minutes: int) -> datetime:
+        minute = (dt_value.minute // minutes) * minutes
+        return dt_value.replace(minute=minute, second=0, microsecond=0)
+
+    def _ensure_power_active_block(self, bucket_start: datetime, bucket_end: datetime) -> dict[str, Any]:
+        block = self.store.get_consumption_power_active_block()
+        expected_start = format_iso(bucket_start, timespec="seconds")
+        expected_end = format_iso(bucket_end, timespec="seconds")
+        if isinstance(block, dict) and block.get("start_time") == expected_start:
+            if block.get("end_time") != expected_end:
+                block["end_time"] = expected_end
+            return block
+
+        if isinstance(block, dict):
+            self._finalize_power_block(block)
+
+        new_block: dict[str, Any] = {
+            "start_time": expected_start,
+            "end_time": expected_end,
+            "energy_kwh_total": 0.0,
+            "duration_seconds_total": 0.0,
+            "max_power_w": 0.0,
+            "min_5m_power_w": None,
+            "window_stats": {},
+            "observed_at": format_iso(datetime.now(ZoneInfo(self.timezone)), timespec="seconds"),
+        }
+        self.store.set_consumption_power_active_block(block=new_block)
+        return new_block
+
+    def _finalize_power_block(self, block: dict[str, Any]) -> None:
+        duration_seconds_total = float(block.get("duration_seconds_total", 0.0) or 0.0)
+        energy_kwh_total = float(block.get("energy_kwh_total", 0.0) or 0.0)
+        max_power_w = float(block.get("max_power_w", 0.0) or 0.0)
+        window_stats = block.get("window_stats") or {}
+        if duration_seconds_total <= 0 or not isinstance(window_stats, dict):
+            self.store.set_consumption_power_active_block(block=None)
+            return
+
+        avg_power_w = (energy_kwh_total * 1000.0) / (duration_seconds_total / 3600.0)
+        min_values: list[float] = []
+        for window in window_stats.values():
+            window_seconds = float(window.get("duration_seconds", 0.0) or 0.0)
+            window_energy = float(window.get("energy_kwh", 0.0) or 0.0)
+            if window_seconds <= 0:
+                continue
+            min_values.append((window_energy * 1000.0) / (window_seconds / 3600.0))
+        if not min_values:
+            self.store.set_consumption_power_active_block(block=None)
+            return
+
+        self.store.add_consumption_power_bucket(
+            start_time=str(block["start_time"]),
+            end_time=str(block["end_time"]),
+            avg_power_w=avg_power_w,
+            max_power_w=max_power_w,
+            min_5m_power_w=min(min_values),
+        )
+        self.store.set_consumption_power_active_block(block=None)
+
+    def _aggregate_power_interval(self, *, start: datetime, end: datetime, delta_kwh: float, power_w: float) -> None:
+        total_seconds = max((end - start).total_seconds(), 0.0)
+        if total_seconds <= 0:
+            return
+
+        cursor = start
+        while cursor < end:
+            bucket_start = self._floor_to_minutes(cursor, 15)
+            bucket_end = bucket_start + timedelta(minutes=15)
+            overlap_end = min(end, bucket_end)
+            overlap_seconds = (overlap_end - cursor).total_seconds()
+            if overlap_seconds <= 0:
+                break
+
+            share_kwh = delta_kwh * (overlap_seconds / total_seconds)
+            block = self._ensure_power_active_block(bucket_start, bucket_end)
+            block["energy_kwh_total"] = float(block.get("energy_kwh_total", 0.0) or 0.0) + share_kwh
+            block["duration_seconds_total"] = float(block.get("duration_seconds_total", 0.0) or 0.0) + overlap_seconds
+            block["max_power_w"] = max(float(block.get("max_power_w", 0.0) or 0.0), float(power_w))
+            window_stats = block.setdefault("window_stats", {})
+
+            window_cursor = cursor
+            while window_cursor < overlap_end:
+                window_start = self._floor_to_minutes(window_cursor, 5)
+                window_end = window_start + timedelta(minutes=5)
+                window_overlap_end = min(overlap_end, window_end)
+                window_overlap_seconds = (window_overlap_end - window_cursor).total_seconds()
+                if window_overlap_seconds <= 0:
+                    break
+                window_share_kwh = share_kwh * (window_overlap_seconds / overlap_seconds)
+                window_key = format_iso(window_start, timespec="seconds")
+                window = window_stats.setdefault(window_key, {"energy_kwh": 0.0, "duration_seconds": 0.0})
+                window["energy_kwh"] = float(window.get("energy_kwh", 0.0) or 0.0) + window_share_kwh
+                window["duration_seconds"] = float(window.get("duration_seconds", 0.0) or 0.0) + window_overlap_seconds
+                window_cursor = window_overlap_end
+
+            block["observed_at"] = format_iso(datetime.now(ZoneInfo(self.timezone)), timespec="seconds")
+            self.store.set_consumption_power_active_block(block=block)
+
+            if overlap_end >= bucket_end:
+                self._finalize_power_block(block)
+
+            cursor = overlap_end
 
     def _filter_today_tomorrow_slots(self, slots: list[SlotRecord]) -> list[SlotRecord]:
         return filter_today_tomorrow_slots(slots, self.timezone)

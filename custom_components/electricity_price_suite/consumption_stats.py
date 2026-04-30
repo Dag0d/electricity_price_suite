@@ -7,7 +7,12 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .models import ConsumptionMonthlyRollup, ConsumptionPowerSampleRow, ConsumptionSlotRow
+from .models import (
+    ConsumptionMonthlyRollup,
+    ConsumptionPowerActiveBlock,
+    ConsumptionPowerBucketRow,
+    ConsumptionSlotRow,
+)
 from .time_utils import parse_iso_in_tz
 
 
@@ -63,7 +68,8 @@ def build_consumption_metrics(
     *,
     slots: list[ConsumptionSlotRow],
     monthly_rollups: dict[str, ConsumptionMonthlyRollup],
-    power_samples: list[ConsumptionPowerSampleRow],
+    power_buckets: list[ConsumptionPowerBucketRow],
+    power_active_block: ConsumptionPowerActiveBlock | None,
     timezone_name: str,
     round_decimals: int,
     fixed_fee_monthly_amount: float,
@@ -176,58 +182,57 @@ def build_consumption_metrics(
     avg_last_month_cost = last_month_cost + last_month_fee if avg_price_include_basic_fee else last_month_cost
 
     rolling_cutoff = now - timedelta(hours=24)
-    power_segments: list[tuple[datetime, datetime, float]] = []
-    for sample in power_samples:
-        start = parse_iso_in_tz(sample.get("start_time"), tz)
-        end = parse_iso_in_tz(sample.get("end_time"), tz)
+    bucket_segments: list[tuple[datetime, datetime, float, float, float]] = []
+    for bucket in power_buckets:
+        start = parse_iso_in_tz(bucket.get("start_time"), tz)
+        end = parse_iso_in_tz(bucket.get("end_time"), tz)
         if start is None or end is None or end <= rolling_cutoff or start >= now:
             continue
         overlap_start = max(start, rolling_cutoff)
         overlap_end = min(end, now)
         if overlap_end <= overlap_start:
             continue
-        power_segments.append((overlap_start, overlap_end, float(sample.get("power_w", 0.0) or 0.0)))
+        bucket_segments.append(
+            (
+                overlap_start,
+                overlap_end,
+                float(bucket.get("avg_power_w", 0.0) or 0.0),
+                float(bucket.get("max_power_w", 0.0) or 0.0),
+                float(bucket.get("min_5m_power_w", 0.0) or 0.0),
+            )
+        )
+
+    if isinstance(power_active_block, dict):
+        start = parse_iso_in_tz(power_active_block.get("start_time"), tz)
+        end = parse_iso_in_tz(power_active_block.get("end_time"), tz)
+        total_seconds = float(power_active_block.get("duration_seconds_total", 0.0) or 0.0)
+        total_energy = float(power_active_block.get("energy_kwh_total", 0.0) or 0.0)
+        max_power = float(power_active_block.get("max_power_w", 0.0) or 0.0)
+        if start is not None and end is not None and end > rolling_cutoff and start < now and total_seconds > 0:
+            overlap_start = max(start, rolling_cutoff)
+            overlap_end = min(end, now)
+            if overlap_end > overlap_start:
+                avg_power = (total_energy * 1000.0) / (total_seconds / 3600.0)
+                min_candidates: list[float] = []
+                for window in (power_active_block.get("window_stats") or {}).values():
+                    window_seconds = float(window.get("duration_seconds", 0.0) or 0.0)
+                    window_energy = float(window.get("energy_kwh", 0.0) or 0.0)
+                    if window_seconds <= 0:
+                        continue
+                    min_candidates.append((window_energy * 1000.0) / (window_seconds / 3600.0))
+                min_power = min(min_candidates) if min_candidates else avg_power
+                bucket_segments.append((overlap_start, overlap_end, avg_power, max_power, min_power))
 
     power_avg_24h: float | None = None
     power_min_24h: float | None = None
     power_max_24h: float | None = None
-    if power_segments:
-        total_seconds = sum((end - start).total_seconds() for start, end, _power in power_segments)
+    if bucket_segments:
+        total_seconds = sum((end - start).total_seconds() for start, end, _avg, _max, _min in bucket_segments)
         if total_seconds > 0:
-            weighted_sum = sum(power * (end - start).total_seconds() for start, end, power in power_segments)
+            weighted_sum = sum(avg * (end - start).total_seconds() for start, end, avg, _max, _min in bucket_segments)
             power_avg_24h = weighted_sum / total_seconds
-        power_max_24h = max(power for _start, _end, power in power_segments)
-
-        candidates: set[datetime] = {now}
-        for seg_start, seg_end, _power in power_segments:
-            if rolling_cutoff <= seg_end <= now:
-                candidates.add(seg_end)
-            shifted = seg_start + timedelta(minutes=5)
-            if rolling_cutoff <= shifted <= now:
-                candidates.add(shifted)
-
-        def window_average(window_end: datetime) -> float | None:
-            window_start = max(rolling_cutoff, window_end - timedelta(minutes=5))
-            window_seconds = 0.0
-            weighted_power = 0.0
-            for seg_start, seg_end, power in power_segments:
-                overlap_start = max(window_start, seg_start)
-                overlap_end = min(window_end, seg_end)
-                overlap_seconds = (overlap_end - overlap_start).total_seconds()
-                if overlap_seconds <= 0:
-                    continue
-                window_seconds += overlap_seconds
-                weighted_power += power * overlap_seconds
-            if window_seconds <= 0:
-                return None
-            return weighted_power / window_seconds
-
-        for candidate in sorted(candidates):
-            avg_power = window_average(candidate)
-            if avg_power is None:
-                continue
-            if power_min_24h is None or avg_power < power_min_24h:
-                power_min_24h = avg_power
+        power_max_24h = max(max_power for _start, _end, _avg, max_power, _min in bucket_segments)
+        power_min_24h = min(min_power for _start, _end, _avg, _max, min_power in bucket_segments)
 
     def rounded_power(value: float | None) -> float | None:
         if value is None:

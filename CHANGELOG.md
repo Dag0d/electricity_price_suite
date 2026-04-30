@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.12 - 2026-04-30
+
+### Changed
+- Reworked power persistence to use compact persisted 15-minute power buckets plus one in-progress aggregation block instead of storing every 30-second power sample.
+- Kept 30-second internal sampling for peak detection while persisting only per-quarter-hour average power, 30-second peak power, and minimum 5-minute window power.
+- Added startup cleanup that removes obsolete legacy `power_samples` and `power_day` storage payloads from older builds.
+
 ## 2026.4.11 - 2026-04-30
 
 ### Changed
