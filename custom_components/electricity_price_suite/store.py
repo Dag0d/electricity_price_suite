@@ -12,7 +12,7 @@ from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
 from .consumption_stats import month_key
 from .models import (
     ConsumptionMonthlyRollup,
-    ConsumptionPowerDayStats,
+    ConsumptionPowerSampleRow,
     ConsumptionSlotRow,
     PlanPayload,
     SlotRecord,
@@ -44,6 +44,7 @@ class TimelineStore:
                 "slots": {},
                 "monthly_rollups": {},
                 "power_day": None,
+                "power_samples": {},
             },
         }
 
@@ -188,11 +189,13 @@ class TimelineStore:
     def get_consumption_last_snapshot(self) -> dict | None:
         return self._data.setdefault("consumption", {}).get("last_snapshot")
 
-    def get_consumption_power_day_stats(self) -> ConsumptionPowerDayStats | None:
-        value = self._data.setdefault("consumption", {}).get("power_day")
-        if isinstance(value, dict):
-            return dict(value)
-        return None
+    def get_consumption_power_samples(self) -> list[ConsumptionPowerSampleRow]:
+        by_start: dict[str, ConsumptionPowerSampleRow] = self._data.setdefault("consumption", {}).setdefault(
+            "power_samples", {}
+        )
+        rows = list(by_start.values())
+        rows.sort(key=lambda item: item["start_time"])
+        return rows
 
     def set_consumption_last_snapshot(self, *, taken_at: str, energy_kwh: float) -> None:
         self._data.setdefault("consumption", {})["last_snapshot"] = {
@@ -200,25 +203,23 @@ class TimelineStore:
             "energy_kwh": float(energy_kwh),
         }
 
-    def add_consumption_power_sample(self, *, local_date: str, power_w: float) -> None:
+    def add_consumption_power_sample(
+        self,
+        *,
+        start_time: str,
+        end_time: str,
+        duration_seconds: float,
+        power_w: float,
+    ) -> None:
         consumption = self._data.setdefault("consumption", {})
-        existing = consumption.get("power_day")
-        if not isinstance(existing, dict) or existing.get("date") != local_date:
-            consumption["power_day"] = {
-                "date": local_date,
-                "sample_count": 1,
-                "power_sum_w": float(power_w),
-                "power_min_w": float(power_w),
-                "power_max_w": float(power_w),
-                "updated_at": utc_now_iso(),
-            }
-            return
-
-        existing["sample_count"] = int(existing.get("sample_count", 0) or 0) + 1
-        existing["power_sum_w"] = float(existing.get("power_sum_w", 0.0) or 0.0) + float(power_w)
-        existing["power_min_w"] = min(float(existing.get("power_min_w", power_w)), float(power_w))
-        existing["power_max_w"] = max(float(existing.get("power_max_w", power_w)), float(power_w))
-        existing["updated_at"] = utc_now_iso()
+        by_start: dict[str, ConsumptionPowerSampleRow] = consumption.setdefault("power_samples", {})
+        by_start[start_time] = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration_seconds": float(duration_seconds),
+            "power_w": float(power_w),
+            "observed_at": utc_now_iso(),
+        }
 
     def add_consumption_slot(
         self,
@@ -309,6 +310,25 @@ class TimelineStore:
 
         return len(remove_keys)
 
+    def purge_old_power_samples(self, timezone_name: str, retention_hours: int) -> int:
+        tz = ZoneInfo(timezone_name)
+        cutoff = datetime.now(tz) - timedelta(hours=retention_hours)
+        consumption = self._data.setdefault("consumption", {})
+        by_start: dict[str, ConsumptionPowerSampleRow] = consumption.setdefault("power_samples", {})
+        remove_keys: list[str] = []
+        for key, row in by_start.items():
+            end_dt = parse_iso_aware(row.get("end_time") or key)
+            if end_dt is None:
+                remove_keys.append(key)
+                continue
+            if end_dt.astimezone(tz) < cutoff:
+                remove_keys.append(key)
+
+        for key in remove_keys:
+            by_start.pop(key, None)
+
+        return len(remove_keys)
+
     def set_plan(self, device_slug: str, payload: PlanPayload) -> None:
         self._data.setdefault("plans", {})[device_slug] = payload
 
@@ -370,6 +390,7 @@ class TimelineStore:
                 consumption["slots"] = {}
                 consumption["monthly_rollups"] = {}
                 consumption["power_day"] = None
+                consumption["power_samples"] = {}
 
         source_health = self._data.setdefault("source_health", {})
         result["cleared_source_health"] = len(source_health)

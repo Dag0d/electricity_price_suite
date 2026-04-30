@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .models import ConsumptionMonthlyRollup, ConsumptionSlotRow
+from .models import ConsumptionMonthlyRollup, ConsumptionPowerSampleRow, ConsumptionSlotRow
 from .time_utils import parse_iso_in_tz
 
 
@@ -63,7 +63,7 @@ def build_consumption_metrics(
     *,
     slots: list[ConsumptionSlotRow],
     monthly_rollups: dict[str, ConsumptionMonthlyRollup],
-    power_day_stats: dict[str, Any] | None,
+    power_samples: list[ConsumptionPowerSampleRow],
     timezone_name: str,
     round_decimals: int,
     fixed_fee_monthly_amount: float,
@@ -175,15 +175,59 @@ def build_consumption_metrics(
     avg_month_cost = month_cost + month_fee if avg_price_include_basic_fee else month_cost
     avg_last_month_cost = last_month_cost + last_month_fee if avg_price_include_basic_fee else last_month_cost
 
-    power_avg_today: float | None = None
-    power_min_today: float | None = None
-    power_max_today: float | None = None
-    if isinstance(power_day_stats, dict) and power_day_stats.get("date") == today.isoformat():
-        sample_count = int(power_day_stats.get("sample_count", 0) or 0)
-        if sample_count > 0:
-            power_avg_today = float(power_day_stats.get("power_sum_w", 0.0) or 0.0) / float(sample_count)
-            power_min_today = float(power_day_stats.get("power_min_w", 0.0) or 0.0)
-            power_max_today = float(power_day_stats.get("power_max_w", 0.0) or 0.0)
+    rolling_cutoff = now - timedelta(hours=24)
+    power_segments: list[tuple[datetime, datetime, float]] = []
+    for sample in power_samples:
+        start = parse_iso_in_tz(sample.get("start_time"), tz)
+        end = parse_iso_in_tz(sample.get("end_time"), tz)
+        if start is None or end is None or end <= rolling_cutoff or start >= now:
+            continue
+        overlap_start = max(start, rolling_cutoff)
+        overlap_end = min(end, now)
+        if overlap_end <= overlap_start:
+            continue
+        power_segments.append((overlap_start, overlap_end, float(sample.get("power_w", 0.0) or 0.0)))
+
+    power_avg_24h: float | None = None
+    power_min_24h: float | None = None
+    power_max_24h: float | None = None
+    if power_segments:
+        total_seconds = sum((end - start).total_seconds() for start, end, _power in power_segments)
+        if total_seconds > 0:
+            weighted_sum = sum(power * (end - start).total_seconds() for start, end, power in power_segments)
+            power_avg_24h = weighted_sum / total_seconds
+        power_max_24h = max(power for _start, _end, power in power_segments)
+
+        candidates: set[datetime] = {now}
+        for seg_start, seg_end, _power in power_segments:
+            if rolling_cutoff <= seg_end <= now:
+                candidates.add(seg_end)
+            shifted = seg_start + timedelta(minutes=5)
+            if rolling_cutoff <= shifted <= now:
+                candidates.add(shifted)
+
+        def window_average(window_end: datetime) -> float | None:
+            window_start = max(rolling_cutoff, window_end - timedelta(minutes=5))
+            window_seconds = 0.0
+            weighted_power = 0.0
+            for seg_start, seg_end, power in power_segments:
+                overlap_start = max(window_start, seg_start)
+                overlap_end = min(window_end, seg_end)
+                overlap_seconds = (overlap_end - overlap_start).total_seconds()
+                if overlap_seconds <= 0:
+                    continue
+                window_seconds += overlap_seconds
+                weighted_power += power * overlap_seconds
+            if window_seconds <= 0:
+                return None
+            return weighted_power / window_seconds
+
+        for candidate in sorted(candidates):
+            avg_power = window_average(candidate)
+            if avg_power is None:
+                continue
+            if power_min_24h is None or avg_power < power_min_24h:
+                power_min_24h = avg_power
 
     def rounded_power(value: float | None) -> float | None:
         if value is None:
@@ -208,9 +252,9 @@ def build_consumption_metrics(
         "avg_paid_price_yesterday": rounded(avg(avg_yesterday_cost, yesterday_energy)),
         "avg_paid_price_month": rounded(avg(avg_month_cost, month_energy)),
         "avg_paid_price_last_month": rounded(avg(avg_last_month_cost, last_month_energy)),
-        "avg_power_today_w": rounded_power(power_avg_today),
-        "min_power_today_w": rounded_power(power_min_today),
-        "max_power_today_w": rounded_power(power_max_today),
+        "avg_power_24h_w": rounded_power(power_avg_24h),
+        "min_power_24h_w": rounded_power(power_min_24h),
+        "max_power_24h_w": rounded_power(power_max_24h),
         "last_updated": now.isoformat(timespec="seconds"),
         "fixed_fee_monthly_amount": float(fixed_fee_monthly_amount),
         "fixed_fee_daily_amount": float(fixed_fee_daily_amount),

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.11 - 2026-04-30
+
+### Changed
+- Replaced the old `*_power_today_w` sensors with rolling `24h` power sensors for average, maximum, and minimum power.
+- `min_power_24h_w` is now derived from a 5-minute rolling average over the last 24 hours instead of a single short interval, which makes low-power readings much more realistic for constant household base load.
+- Power tracking now stores compact interval samples for the recent rolling window instead of only day-based summary stats.
+
 ## 2026.4.10 - 2026-04-30
 
 ### Fixed

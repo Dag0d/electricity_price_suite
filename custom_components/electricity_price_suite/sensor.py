@@ -27,9 +27,9 @@ _CONSUMPTION_SENSOR_SPECS: tuple[dict[str, str], ...] = (
     {"key": "consumption_current_hour_kwh", "translation_key": "consumption_current_hour", "kind": "energy"},
     {"key": "consumption_month_kwh", "translation_key": "consumption_month", "kind": "energy"},
     {"key": "consumption_yesterday_kwh", "translation_key": "consumption_yesterday", "kind": "energy"},
-    {"key": "avg_power_today_w", "translation_key": "avg_power_today", "kind": "power"},
-    {"key": "max_power_today_w", "translation_key": "max_power_today", "kind": "power"},
-    {"key": "min_power_today_w", "translation_key": "min_power_today", "kind": "power"},
+    {"key": "avg_power_24h_w", "translation_key": "avg_power_24h", "kind": "power"},
+    {"key": "max_power_24h_w", "translation_key": "max_power_24h", "kind": "power"},
+    {"key": "min_power_24h_w", "translation_key": "min_power_24h", "kind": "power"},
     {"key": "cost_today", "translation_key": "cost_today", "kind": "money"},
     {"key": "cost_month", "translation_key": "cost_month", "kind": "money"},
     {"key": "cost_yesterday", "translation_key": "cost_yesterday", "kind": "money"},
@@ -72,6 +72,11 @@ async def _async_setup_timeline_entry(runtime: TimelineRuntime, async_add_entiti
     current_market_price = CurrentMarketPriceSensor(runtime)
     entities.append(current_market_price)
     runtime.current_market_price_sensor = current_market_price
+    for legacy_metric in ("avg_power_today_w", "max_power_today_w", "min_power_today_w"):
+        unique_id = f"{runtime.entry.entry_id}_{legacy_metric}"
+        stale_entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+        if stale_entity_id:
+            registry.async_remove(stale_entity_id)
     if runtime.has_consumption_tracking:
         for spec in _CONSUMPTION_SENSOR_SPECS:
             sensor = TimelineConsumptionSensor(runtime, spec["key"], spec["translation_key"], spec["kind"])

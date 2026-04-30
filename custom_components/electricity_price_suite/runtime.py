@@ -1341,7 +1341,9 @@ class TimelineRuntime:
                 if duration_seconds > 0 and delta >= 0:
                     power_w = (delta * 1000.0) / (duration_seconds / 3600.0)
                     self.store.add_consumption_power_sample(
-                        local_date=now.date().isoformat(),
+                        start_time=format_iso(prev_taken, timespec="seconds"),
+                        end_time=format_iso(now, timespec="seconds"),
+                        duration_seconds=duration_seconds,
                         power_w=power_w,
                     )
                 if delta > 0:
@@ -1354,6 +1356,10 @@ class TimelineRuntime:
         self.store.purge_old_consumption_slots(
             self.timezone,
             DEFAULT_CONSUMPTION_RETENTION_DAYS,
+        )
+        self.store.purge_old_power_samples(
+            self.timezone,
+            26,
         )
         await self.store.async_save()
         self.latest_consumption_metrics = self._compute_consumption_metrics()
@@ -1418,7 +1424,7 @@ class TimelineRuntime:
         return build_consumption_metrics(
             slots=self.store.get_consumption_slots(),
             monthly_rollups=self.store.get_consumption_monthly_rollups(),
-            power_day_stats=self.store.get_consumption_power_day_stats(),
+            power_samples=self.store.get_consumption_power_samples(),
             timezone_name=self.timezone,
             round_decimals=self.round_decimals,
             fixed_fee_monthly_amount=self.fixed_fee_monthly_amount,

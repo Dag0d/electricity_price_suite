@@ -60,15 +60,14 @@ class ConsumptionMonthlyRollup(TypedDict):
     updated_at: str
 
 
-class ConsumptionPowerDayStats(TypedDict):
-    """Persisted compact power statistics for the current local day."""
+class ConsumptionPowerSampleRow(TypedDict):
+    """Persisted power sample derived from one energy-delta interval."""
 
-    date: str
-    sample_count: int
-    power_sum_w: float
-    power_min_w: float
-    power_max_w: float
-    updated_at: str
+    start_time: str
+    end_time: str
+    duration_seconds: float
+    power_w: float
+    observed_at: str
 
 
 class SourceConfig(TypedDict, total=False):
