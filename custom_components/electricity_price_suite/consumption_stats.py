@@ -63,6 +63,7 @@ def build_consumption_metrics(
     *,
     slots: list[ConsumptionSlotRow],
     monthly_rollups: dict[str, ConsumptionMonthlyRollup],
+    power_day_stats: dict[str, Any] | None,
     timezone_name: str,
     round_decimals: int,
     fixed_fee_monthly_amount: float,
@@ -174,6 +175,21 @@ def build_consumption_metrics(
     avg_month_cost = month_cost + month_fee if avg_price_include_basic_fee else month_cost
     avg_last_month_cost = last_month_cost + last_month_fee if avg_price_include_basic_fee else last_month_cost
 
+    power_avg_today: float | None = None
+    power_min_today: float | None = None
+    power_max_today: float | None = None
+    if isinstance(power_day_stats, dict) and power_day_stats.get("date") == today.isoformat():
+        sample_count = int(power_day_stats.get("sample_count", 0) or 0)
+        if sample_count > 0:
+            power_avg_today = float(power_day_stats.get("power_sum_w", 0.0) or 0.0) / float(sample_count)
+            power_min_today = float(power_day_stats.get("power_min_w", 0.0) or 0.0)
+            power_max_today = float(power_day_stats.get("power_max_w", 0.0) or 0.0)
+
+    def rounded_power(value: float | None) -> float | None:
+        if value is None:
+            return None
+        return round(float(value), 0)
+
     return {
         "consumption_energy_entity": consumption_energy_entity,
         "consumption_today_kwh": rounded(today_energy),
@@ -192,6 +208,9 @@ def build_consumption_metrics(
         "avg_paid_price_yesterday": rounded(avg(avg_yesterday_cost, yesterday_energy)),
         "avg_paid_price_month": rounded(avg(avg_month_cost, month_energy)),
         "avg_paid_price_last_month": rounded(avg(avg_last_month_cost, last_month_energy)),
+        "avg_power_today_w": rounded_power(power_avg_today),
+        "min_power_today_w": rounded_power(power_min_today),
+        "max_power_today_w": rounded_power(power_max_today),
         "last_updated": now.isoformat(timespec="seconds"),
         "fixed_fee_monthly_amount": float(fixed_fee_monthly_amount),
         "fixed_fee_daily_amount": float(fixed_fee_daily_amount),

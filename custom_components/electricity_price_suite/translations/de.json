@@ -263,6 +263,15 @@
       "consumption_yesterday": {
         "name": "Verbrauch gestern"
       },
+      "avg_power_today": {
+        "name": "Durchschnittliche Leistung heute"
+      },
+      "max_power_today": {
+        "name": "Maximale Leistung heute"
+      },
+      "min_power_today": {
+        "name": "Minimale Leistung heute"
+      },
       "cost_today": {
         "name": "Kosten heute"
       },

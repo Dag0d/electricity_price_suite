@@ -1283,6 +1283,13 @@ class TimelineRuntime:
             prev_energy = snapshot.get("energy_kwh")
             if prev_taken is not None and isinstance(prev_energy, (int, float)):
                 delta = float(current_energy_kwh) - float(prev_energy)
+                duration_seconds = max((now - prev_taken).total_seconds(), 0.0)
+                if duration_seconds > 0 and delta >= 0:
+                    power_w = (delta * 1000.0) / (duration_seconds / 3600.0)
+                    self.store.add_consumption_power_sample(
+                        local_date=now.date().isoformat(),
+                        power_w=power_w,
+                    )
                 if delta > 0:
                     self._book_consumption_delta(start=prev_taken, end=now, delta_kwh=delta)
 
@@ -1357,6 +1364,7 @@ class TimelineRuntime:
         return build_consumption_metrics(
             slots=self.store.get_consumption_slots(),
             monthly_rollups=self.store.get_consumption_monthly_rollups(),
+            power_day_stats=self.store.get_consumption_power_day_stats(),
             timezone_name=self.timezone,
             round_decimals=self.round_decimals,
             fixed_fee_monthly_amount=self.fixed_fee_monthly_amount,

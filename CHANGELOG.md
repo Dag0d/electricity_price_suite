@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.5 - 2026-04-30
+
+### Changed
+- Added three new day-based power sensors for timelines with consumption tracking:
+  - average power today
+  - maximum power today
+  - minimum power today
+- Power values are now derived from the existing 30-second consumption samples and stored as compact day statistics instead of additional raw 30-second history rows.
+
 ## 2026.4.4 - 2026-04-30
 
 ### Changed

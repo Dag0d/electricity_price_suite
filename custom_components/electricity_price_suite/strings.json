@@ -263,6 +263,15 @@
       "consumption_yesterday": {
         "name": "Consumption Yesterday"
       },
+      "avg_power_today": {
+        "name": "Average Power Today"
+      },
+      "max_power_today": {
+        "name": "Maximum Power Today"
+      },
+      "min_power_today": {
+        "name": "Minimum Power Today"
+      },
       "cost_today": {
         "name": "Cost Today"
       },

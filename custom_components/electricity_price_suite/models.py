@@ -60,6 +60,17 @@ class ConsumptionMonthlyRollup(TypedDict):
     updated_at: str
 
 
+class ConsumptionPowerDayStats(TypedDict):
+    """Persisted compact power statistics for the current local day."""
+
+    date: str
+    sample_count: int
+    power_sum_w: float
+    power_min_w: float
+    power_max_w: float
+    updated_at: str
+
+
 class SourceConfig(TypedDict, total=False):
     """Normalized source config stored by the integration."""
 

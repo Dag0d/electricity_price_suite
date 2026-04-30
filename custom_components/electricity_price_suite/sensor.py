@@ -27,6 +27,9 @@ _CONSUMPTION_SENSOR_SPECS: tuple[dict[str, str], ...] = (
     {"key": "consumption_current_hour_kwh", "translation_key": "consumption_current_hour", "kind": "energy"},
     {"key": "consumption_month_kwh", "translation_key": "consumption_month", "kind": "energy"},
     {"key": "consumption_yesterday_kwh", "translation_key": "consumption_yesterday", "kind": "energy"},
+    {"key": "avg_power_today_w", "translation_key": "avg_power_today", "kind": "power"},
+    {"key": "max_power_today_w", "translation_key": "max_power_today", "kind": "power"},
+    {"key": "min_power_today_w", "translation_key": "min_power_today", "kind": "power"},
     {"key": "cost_today", "translation_key": "cost_today", "kind": "money"},
     {"key": "cost_month", "translation_key": "cost_month", "kind": "money"},
     {"key": "cost_yesterday", "translation_key": "cost_yesterday", "kind": "money"},
@@ -261,6 +264,10 @@ class TimelineConsumptionSensor(BaseSuiteEntity):
             self._attr_device_class = SensorDeviceClass.ENERGY
             self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
             self._attr_icon = "mdi:lightning-bolt"
+        elif kind == "power":
+            self._attr_device_class = SensorDeviceClass.POWER
+            self._attr_native_unit_of_measurement = "W"
+            self._attr_icon = "mdi:flash"
         elif kind == "money":
             self._attr_device_class = SensorDeviceClass.MONETARY
             self._attr_native_unit_of_measurement = runtime.currency

@@ -12,6 +12,7 @@ from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
 from .consumption_stats import month_key
 from .models import (
     ConsumptionMonthlyRollup,
+    ConsumptionPowerDayStats,
     ConsumptionSlotRow,
     PlanPayload,
     SlotRecord,
@@ -42,6 +43,7 @@ class TimelineStore:
                 "last_snapshot": None,
                 "slots": {},
                 "monthly_rollups": {},
+                "power_day": None,
             },
         }
 
@@ -146,11 +148,37 @@ class TimelineStore:
     def get_consumption_last_snapshot(self) -> dict | None:
         return self._data.setdefault("consumption", {}).get("last_snapshot")
 
+    def get_consumption_power_day_stats(self) -> ConsumptionPowerDayStats | None:
+        value = self._data.setdefault("consumption", {}).get("power_day")
+        if isinstance(value, dict):
+            return dict(value)
+        return None
+
     def set_consumption_last_snapshot(self, *, taken_at: str, energy_kwh: float) -> None:
         self._data.setdefault("consumption", {})["last_snapshot"] = {
             "taken_at": taken_at,
             "energy_kwh": float(energy_kwh),
         }
+
+    def add_consumption_power_sample(self, *, local_date: str, power_w: float) -> None:
+        consumption = self._data.setdefault("consumption", {})
+        existing = consumption.get("power_day")
+        if not isinstance(existing, dict) or existing.get("date") != local_date:
+            consumption["power_day"] = {
+                "date": local_date,
+                "sample_count": 1,
+                "power_sum_w": float(power_w),
+                "power_min_w": float(power_w),
+                "power_max_w": float(power_w),
+                "updated_at": utc_now_iso(),
+            }
+            return
+
+        existing["sample_count"] = int(existing.get("sample_count", 0) or 0) + 1
+        existing["power_sum_w"] = float(existing.get("power_sum_w", 0.0) or 0.0) + float(power_w)
+        existing["power_min_w"] = min(float(existing.get("power_min_w", power_w)), float(power_w))
+        existing["power_max_w"] = max(float(existing.get("power_max_w", power_w)), float(power_w))
+        existing["updated_at"] = utc_now_iso()
 
     def add_consumption_slot(
         self,
@@ -295,6 +323,7 @@ class TimelineStore:
                 consumption["last_snapshot"] = None
                 consumption["slots"] = {}
                 consumption["monthly_rollups"] = {}
+                consumption["power_day"] = None
 
         source_health = self._data.setdefault("source_health", {})
         result["cleared_source_health"] = len(source_health)
