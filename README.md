@@ -2,13 +2,13 @@
 
 `electricity_price_suite` is a Home Assistant custom integration for:
 
-- Building and maintaining a price timeline (today/tomorrow) from multiple sources
+- Building and maintaining a price timeline (today/tomorrow) from direct market providers
 - Merging source data by strict priority (authoritative source wins)
 - Learning consumption profiles from real device runs
 - Optimizing device start times against stored timeline data
 - Exposing automation-friendly entities and services
 
-The integration is designed for setups where price data may come from different providers (attribute sensors, service/action responses, or manual injection), while planning logic should always run against one internal timeline store.
+The integration keeps one internal timeline store per entry. Provider selection, fallback order, planning, and logger-based optimization all work against that internal timeline rather than against proxy entities.
 
 ## Core Concepts
 
@@ -31,7 +31,8 @@ Per timeline, the integration exposes:
 
 - `sensor.<timeline_slug>_pricing_meta` (main timeline sensor)
 - `sensor.<timeline_slug>_status` (high-level status state for automations)
-- Optional: `sensor.<timeline_slug>_current_price`
+- `sensor.<timeline_slug>_current_price`
+- `sensor.<timeline_slug>_current_market_price`
 - Optional consumption/cost sensors when a total-increasing consumption entity is configured:
   - `sensor.<timeline_slug>_consumption_today_kwh`
   - `sensor.<timeline_slug>_consumption_current_hour_kwh`
@@ -62,9 +63,9 @@ The meta sensor represents logger state and active run details.
 
 Each program sensor represents one learned profile and exposes its average total energy and profile metadata.
 
-### 4) Source Chain with Priority
+### 4) Provider Chain with Priority
 
-Sources are ordered by priority:
+Providers are ordered by priority:
 
 - Lower numeric value = higher priority
 - Priority `0` is typically the authoritative source
@@ -75,7 +76,7 @@ Sources are ordered by priority:
 
 ### 5) Explicit Refresh, Deterministic Behavior
 
-Timeline data updates on explicit calls (`refresh_timeline`, `inject_slots`) and optional scheduled checks implemented by the integration runtime. Source fallback behavior is transparent via response logs and sensor attributes.
+Timeline data updates on explicit calls (`refresh_timeline`, `inject_slots`) and optional scheduled checks implemented by the integration runtime. Provider fallback behavior is transparent via response logs and sensor attributes.
 
 ### 6) Optimizer Works on Internal Store
 
@@ -85,10 +86,18 @@ When a logger profile is used, the optimizer reads it directly from the internal
 
 ## Features
 
-- Multi-source timeline refresh (`entity_attribute`, `entity_action`, `inject_only`, optional API backup sources)
+- Direct provider timeline refresh for:
+  - `Tibber`
+  - `SMARD`
+  - `Energy-Charts`
+  - `ENTSO-E`
+- Ordered provider fallback chain per timeline
+- `15 -> 60` slot aggregation where needed
+- Never `60 -> 15` slot expansion
 - Priority-based slot merge with replace/ignore logic
 - Weighted timeline metrics (including mixed slot durations)
-- Current price sensor (optional)
+- Current price sensor (always enabled)
+- Separate current market price sensor (raw provider market price before EPS surcharges/tax)
 - Optional consumption/cost tracking from one total-increasing energy entity
 - Status sensor with fixed machine-readable states
 - Device plan entity lifecycle: one persistent plan entity per device per planner within a timeline
@@ -176,19 +185,31 @@ The config flow starts with an entry-type selection:
 
 ### Timeline flow
 
-1. Base settings:
+1. Timeline core:
    - Timeline name
-   - Currency
+   - Billing resolution (`15` or `60` minutes)
    - Cache retention days
    - Price rounding decimals
-   - Enable/disable current price sensor
-2. Primary source type:
-   - `entity_attribute`
-   - `entity_action`
-   - `inject_only`
-3. Source-specific fields for the selected primary source
+2. Provider chain:
+   - Number of providers (`1` to `4`)
+   - Ordered provider selection
+   - Provider-specific settings per step
+3. Consumption and cost tracking:
+   - Optional total-increasing consumption energy entity
+   - Percentage surcharge on market price
+   - Absolute surcharge per kWh
+   - Energy tax / VAT percent
+   - Optional simplified basic-fee settings
+   - Optional flag whether average paid price should include the configured basic fee
+4. Planner devices:
+   - One or more planner device names for this timeline
 
-Additional timeline sources can be added later through service calls.
+Provider chain notes:
+
+- The integration is EUR-native for now.
+- `15 -> 60` aggregation is allowed for providers that only expose 15-minute slots.
+- `60 -> 15` expansion is never performed.
+- Tibber defaults to the first home and only asks for `home_index` when multiple homes are enabled.
 
 ### Profile logger flow
 
@@ -206,7 +227,7 @@ Additional timeline sources can be added later through service calls.
 Main timeline sensor with:
 
 - State: average price today (rounded) or `unknown`
-- Attributes: timeline metrics, day rows, source/fetch metadata, merge-relevant info
+- Attributes: timeline metrics, day rows, source/fetch metadata, merge-relevant info, and the configured energy price formula values
 
 ### `sensor.<timeline_slug>_status`
 
@@ -215,23 +236,28 @@ Automation-friendly status state:
 - `no_data`
 - `today_only`
 - `tomorrow_only`
-- `tomorrow_not_from_prio0`
+- `tomorrow_not_from_provider_1`
 - `today_and_tomorrow`
 
 Includes attributes like `today_rows`, `tomorrow_rows`, and `last_source_chain_fetch_at`.
 
-### `sensor.<timeline_slug>_current_price` (optional)
+### `sensor.<timeline_slug>_current_price`
 
 - State: current slot price (rounded)
 - Minimal attributes for current price context
 
+### `sensor.<timeline_slug>_current_market_price`
+
+- State: current raw market price before EPS energy surcharges and tax
+- Minimal attributes for current market price context
+
 ### Optional consumption/cost sensors
 
-If a timeline is configured with a total-increasing consumption energy entity, the integration keeps an internal rolling slot ledger for 31 days and exposes dedicated consumption/cost sensors.
+If a timeline is configured with a total-increasing consumption energy entity, the integration exposes dedicated consumption/cost sensors.
 
 - Consumption sensors expose `kWh`
-- Cost sensors expose the configured timeline currency
-- Average paid price sensors expose `<currency>/kWh`
+- Cost sensors expose `EUR`
+- Average paid price sensors expose `EUR/kWh`
 - The consumption path is re-sampled every 30 seconds, so `current hour` and running averages are near-live without keeping 30-second raw rows
 - Recorder will store their history like normal Home Assistant sensors
 - `last_month` values are preserved via monthly rollups and do not require retention beyond 31 days
@@ -276,7 +302,7 @@ Per-program learned profile sensor with:
 
 All services are in domain `electricity_price_suite`.
 
-- `refresh_timeline`, `inject_slots`, `optimize_device`, `manage_sources` use a timeline target.
+- `refresh_timeline`, `inject_slots`, `optimize_device` use a timeline target.
 - `manage_plan` uses one or more plan entity targets.
 - `manage_profile_run`, `manage_profile` use a profile logger target.
 
@@ -562,108 +588,6 @@ data:
 
 ---
 
-### `manage_sources`
-
-Adds, lists, or deletes source definitions in the timeline source chain.
-
-`manage_sources` currently supports pull sources only:
-
-- `entity_attribute`
-- `entity_action`
-
-`inject_only` is available for the primary source during config flow and for direct data injection via `inject_slots`, but it is not added through `manage_sources`.
-
-#### Inputs
-
-- `target` (required).
-  - Expected: exactly one timeline target entity for mode=`add` and mode=`delete`; one timeline target entity for mode=`list`.
-  - Effect: selects which timeline source chain is managed.
-- `mode` (required).
-  - Expected: `add | list | delete`.
-  - Effect: chooses which source-management action is executed.
-- `id` (optional).
-  - Only used for mode=`add`, `list`, `delete`.
-  - Expected: unique source identifier string within timeline.
-- `source_type` (optional).
-  - Only used for mode=`add`.
-  - Expected: `entity_attribute | entity_action`.
-  - Effect: chooses provider path.
-- `priority` (optional).
-  - Only used for mode=`add`.
-  - Expected: integer (lower = stronger).
-  - Effect: merge rank for rows from this source.
-- `source_entity_id` (optional).
-  - Only used for mode=`add`.
-  - Expected: entity id.
-  - Effect: used by source type where entity context is required.
-- `attribute` (optional for `entity_attribute`, required there).
-  - Only used for mode=`add`.
-  - Expected: attribute name string.
-  - Effect: defines where slot list is read from state attributes.
-- `action` (optional for `entity_action`, required there).
-  - Only used for mode=`add`.
-  - Expected: `domain.service` or `domain/service`.
-  - Effect: action invoked to fetch source data.
-- `response_path` (optional for `entity_action`, required there).
-  - Only used for mode=`add`.
-  - Expected: dotted path into service response payload.
-  - Effect: points to list that should contain slot rows.
-- `request_payload` (optional for `entity_action`).
-  - Only used for mode=`add`.
-  - Expected: object.
-  - Effect: forwarded as action payload.
-- `time_key` (optional, default `start_time`).
-  - Only used for mode=`add`.
-  - Expected: string.
-  - Effect: source row field name used as slot start timestamp.
-- `price_key` (optional, default `price_per_kwh`).
-  - Only used for mode=`add`.
-  - Expected: string.
-  - Effect: source row field name used as slot price.
-- `enabled` (optional, default `true`).
-  - Only used for mode=`add`.
-  - Expected: boolean.
-  - Effect: enables/disables source participation in refresh.
-- `inject_time_window` (optional for `entity_action`, default `true`).
-  - Only used for mode=`add`.
-  - Expected: boolean.
-  - Effect: auto-injects today/tomorrow time window into request payload.
-- `start_key` (optional, default `start`).
-  - Only used for mode=`add`.
-  - Expected: string.
-  - Effect: payload key used for injected window start.
-- `end_key` (optional, default `end`).
-  - Only used for mode=`add`.
-  - Expected: string.
-  - Effect: payload key used for injected window end.
-- `time_format` (optional, default `%Y-%m-%d %H:%M:%S`).
-  - Only used for mode=`add`.
-  - Expected: datetime format string.
-  - Effect: format used for injected window start/end values.
-
-#### Response (typical)
-
-- mode=`add`
-  - `status`: `ok`
-  - `timeline_entity`
-  - `source`
-  - `source_count`
-- mode=`list`
-  - if `id` provided:
-  - `status`: `ok | not_found`
-  - `timeline_entity`
-  - `source`
-  - if `id` omitted:
-  - `status`: `ok`
-  - `timeline_entity`
-  - `source_ids`: list of configured source ids
-  - `count`: source count
-- mode=`delete`
-  - `status`: `ok | not_found`
-  - `timeline_entity`
-  - `deleted_source_id`
-  - `source_count`
-
 ## Optimizer Model Notes
 
 - Billing slot and profile slot can differ
@@ -677,7 +601,7 @@ Adds, lists, or deletes source definitions in the timeline source chain.
 ## Cache and Persistence
 
 - Timeline slots are stored in integration-managed storage per timeline entry
-- Source metadata and plan payloads are persisted
+- Provider metadata and plan payloads are persisted
 - Cache retention controls historical cleanup behavior
 
 ## Branding
@@ -700,8 +624,8 @@ These tests are recommended to keep, because they protect core algorithm behavio
 ## Development Notes
 
 - Requires Home Assistant with support for this integration version (`manifest.json`)
-- Use Home Assistant service developer tools to test source and optimizer flows
-- For production usage, configure at least one reliable priority-0 source
+- Use Home Assistant service developer tools to test provider and optimizer flows
+- For production usage, configure at least one reliable priority-0 provider
 
 ## Acknowledgements
 

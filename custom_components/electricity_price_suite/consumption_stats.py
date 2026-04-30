@@ -21,23 +21,42 @@ def previous_month(dt: datetime) -> tuple[int, int]:
     return (dt.year, dt.month - 1)
 
 
-def monthly_basic_fee_share(
+def _gross_fixed_fee(amount: float, tax_percent: float, values_include_tax: bool) -> float:
+    base = float(amount or 0.0)
+    if base <= 0:
+        return 0.0
+    if values_include_tax:
+        return base
+    return base * (1.0 + (float(tax_percent or 0.0) / 100.0))
+
+
+def _fixed_fee_shares(
     *,
-    mode: str,
-    amount: float,
     year: int,
     month: int,
     elapsed_days: int,
-) -> float:
-    if amount <= 0:
-        return 0.0
-    elapsed = max(0, elapsed_days)
-    if mode == "daily":
-        return float(amount) * float(elapsed)
-    if mode == "monthly":
-        days_in_month = monthrange(year, month)[1]
-        return (float(amount) / float(days_in_month)) * float(elapsed)
-    return 0.0
+    monthly_amount: float,
+    daily_amount: float,
+    tax_percent: float,
+    values_include_tax: bool,
+    current_month_mode: str,
+    is_current_month: bool,
+) -> tuple[float, float]:
+    days_in_month = monthrange(year, month)[1]
+    elapsed = max(0, min(elapsed_days, days_in_month))
+    monthly_gross = _gross_fixed_fee(monthly_amount, tax_percent, values_include_tax)
+    daily_gross = _gross_fixed_fee(daily_amount, tax_percent, values_include_tax)
+
+    day_share = daily_gross
+    if monthly_gross > 0:
+        day_share += monthly_gross / float(days_in_month)
+
+    if is_current_month and current_month_mode == "full":
+        month_share = monthly_gross + (daily_gross * float(elapsed))
+    else:
+        month_share = ((monthly_gross / float(days_in_month)) * float(elapsed)) + (daily_gross * float(elapsed))
+
+    return (day_share, month_share)
 
 
 def build_consumption_metrics(
@@ -46,8 +65,11 @@ def build_consumption_metrics(
     monthly_rollups: dict[str, ConsumptionMonthlyRollup],
     timezone_name: str,
     round_decimals: int,
-    basic_fee_mode: str,
-    basic_fee_amount: float,
+    fixed_fee_monthly_amount: float,
+    fixed_fee_daily_amount: float,
+    fixed_fee_tax_percent: float,
+    fixed_fee_values_include_tax: bool,
+    current_month_fixed_fee_mode: str,
     avg_price_include_basic_fee: bool,
     consumption_energy_entity: str | None,
 ) -> dict[str, Any]:
@@ -103,33 +125,38 @@ def build_consumption_metrics(
     today_cost = day_cost.get(today, 0.0)
     yesterday_cost = day_cost.get(yesterday, 0.0)
 
-    month_fee = monthly_basic_fee_share(
-        mode=basic_fee_mode,
-        amount=basic_fee_amount,
+    today_fee, month_fee = _fixed_fee_shares(
         year=now.year,
         month=now.month,
         elapsed_days=today.day,
+        monthly_amount=fixed_fee_monthly_amount,
+        daily_amount=fixed_fee_daily_amount,
+        tax_percent=fixed_fee_tax_percent,
+        values_include_tax=fixed_fee_values_include_tax,
+        current_month_mode=current_month_fixed_fee_mode,
+        is_current_month=True,
     )
-    today_fee = monthly_basic_fee_share(
-        mode=basic_fee_mode,
-        amount=basic_fee_amount,
-        year=today.year,
-        month=today.month,
-        elapsed_days=1,
-    )
-    yesterday_fee = monthly_basic_fee_share(
-        mode=basic_fee_mode,
-        amount=basic_fee_amount,
+    yesterday_fee, _ = _fixed_fee_shares(
         year=yesterday.year,
         month=yesterday.month,
         elapsed_days=1,
+        monthly_amount=fixed_fee_monthly_amount,
+        daily_amount=fixed_fee_daily_amount,
+        tax_percent=fixed_fee_tax_percent,
+        values_include_tax=fixed_fee_values_include_tax,
+        current_month_mode="prorated",
+        is_current_month=False,
     )
-    last_month_fee = monthly_basic_fee_share(
-        mode=basic_fee_mode,
-        amount=basic_fee_amount,
+    _, last_month_fee = _fixed_fee_shares(
         year=last_month_year,
         month=last_month_month,
         elapsed_days=monthrange(last_month_year, last_month_month)[1],
+        monthly_amount=fixed_fee_monthly_amount,
+        daily_amount=fixed_fee_daily_amount,
+        tax_percent=fixed_fee_tax_percent,
+        values_include_tax=fixed_fee_values_include_tax,
+        current_month_mode="full",
+        is_current_month=False,
     )
 
     def avg(cost_value: float, energy_value: float) -> float | None:
@@ -166,7 +193,10 @@ def build_consumption_metrics(
         "avg_paid_price_month": rounded(avg(avg_month_cost, month_energy)),
         "avg_paid_price_last_month": rounded(avg(avg_last_month_cost, last_month_energy)),
         "last_updated": now.isoformat(timespec="seconds"),
-        "basic_fee_mode": basic_fee_mode,
-        "basic_fee_amount": float(basic_fee_amount),
+        "fixed_fee_monthly_amount": float(fixed_fee_monthly_amount),
+        "fixed_fee_daily_amount": float(fixed_fee_daily_amount),
+        "fixed_fee_tax_percent": float(fixed_fee_tax_percent),
+        "fixed_fee_values_include_tax": bool(fixed_fee_values_include_tax),
+        "current_month_fixed_fee_mode": str(current_month_fixed_fee_mode),
         "avg_price_include_basic_fee": bool(avg_price_include_basic_fee),
     }

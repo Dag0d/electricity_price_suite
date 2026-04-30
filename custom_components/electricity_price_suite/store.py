@@ -235,12 +235,64 @@ class TimelineStore:
     def get_plans(self) -> dict[str, PlanPayload]:
         return self._data.get("plans", {})
 
+    def replace_plans(self, plans: dict[str, PlanPayload]) -> None:
+        self._data["plans"] = dict(plans)
+
     def delete_plan(self, device_slug: str) -> bool:
         plans = self._data.setdefault("plans", {})
         if device_slug in plans:
             plans.pop(device_slug, None)
             return True
         return False
+
+    def clear_runtime_state(
+        self,
+        *,
+        clear_slots: bool,
+        clear_sources: bool,
+        clear_consumption: bool,
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        result = {
+            "cleared_slots": 0,
+            "cleared_sources": 0,
+            "cleared_consumption_slots": 0,
+            "cleared_consumption_monthly_rollups": 0,
+            "cleared_source_health": 0,
+        }
+
+        if clear_slots:
+            slots = self._data.setdefault("slots", {})
+            result["cleared_slots"] = len(slots)
+            if not dry_run:
+                self._data["slots"] = {}
+
+        if clear_sources:
+            sources = self._data.setdefault("sources", [])
+            result["cleared_sources"] = len(sources)
+            if not dry_run:
+                self._data["sources"] = []
+
+        if clear_consumption:
+            consumption = self._data.setdefault("consumption", {})
+            slot_rows = consumption.setdefault("slots", {})
+            monthly_rollups = consumption.setdefault("monthly_rollups", {})
+            result["cleared_consumption_slots"] = len(slot_rows)
+            result["cleared_consumption_monthly_rollups"] = len(monthly_rollups)
+            if not dry_run:
+                consumption["last_snapshot"] = None
+                consumption["slots"] = {}
+                consumption["monthly_rollups"] = {}
+
+        source_health = self._data.setdefault("source_health", {})
+        result["cleared_source_health"] = len(source_health)
+        if not dry_run:
+            self._data["source_health"] = {}
+            self._data["last_primary_refresh_at"] = None
+            self._data["last_source_chain_fetch_at"] = None
+            self._data["last_successful_source_id"] = None
+
+        return result
 
     def get_sources(self) -> list[SourceConfig]:
         return list(self._data.get("sources", []))

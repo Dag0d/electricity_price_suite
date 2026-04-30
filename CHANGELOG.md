@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.3 - 2026-04-30
+
+### Changed
+- Replaced the old proxy-source setup with a direct provider chain for Tibber, SMARD, Energy-Charts, and ENTSO-E, configured entirely through the timeline config/options flow.
+- Split the timeline flow into clearer steps for billing resolution, provider order, energy-price formula, optional consumption tracking, and planner devices.
+- Added a separate raw market-price sensor alongside the final current price sensor.
+- Switched timeline energy pricing to an explicit market-price pipeline with percentage surcharge, absolute surcharge, and tax handling.
+- Updated Tibber handling so the raw energy component is kept as market price while Tibber's API total is used as the authoritative final timeline price.
+- Reworked optional consumption tracking to use dedicated sensors for consumption, cost, and average paid price with a new fixed-fee model:
+  - monthly fixed fee
+  - daily fixed fee
+  - fixed-fee tax
+  - gross/net toggle
+  - current-month mode (`Anteilig` / `Voll`)
+- Plans now remain migratable across the new planner structure without touching logger profile storage.
+
+### Fixed
+- Current price and current market price now switch exactly on billing slot boundaries instead of staying on the first loaded slot.
+- Removed active leftovers from the old `manage_sources` and proxy-source path from the integration, config flow, translations, manual tests, and documentation.
+- Added cleanup for legacy provider store payloads that still contained default `slot_mapping` metadata.
+- Added a one-time `migrate_timeline_storage` service to clean old timeline runtime data, clear legacy stored sources, and preserve plans while preparing an existing installation for the new direct-provider model.
+
 ## 2026.4.2 - 2026-04-28
 
 ### Changed

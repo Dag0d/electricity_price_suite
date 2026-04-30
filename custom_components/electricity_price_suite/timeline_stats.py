@@ -176,6 +176,9 @@ def build_timeline_stats(
     currency: str,
     round_decimals: int,
     fallback_slot_minutes: int,
+    energy_surcharge_percent: float,
+    energy_surcharge_absolute: float,
+    energy_tax_percent: float,
 ) -> TimelineStats:
     """Build the current timeline state and all exposed attributes."""
 
@@ -189,6 +192,13 @@ def build_timeline_stats(
     tomorrow_rows = rows_for_day(all_rows, tomorrow, tz)
     detected_slot_minutes = detect_billing_slot_minutes(all_rows, timezone_name, fallback_slot_minutes)
     current_price, current_price_start = current_price_for_now(all_rows, now, tz, detected_slot_minutes)
+    current_market_price, current_market_price_start = current_price_for_now(
+        all_rows,
+        now,
+        tz,
+        detected_slot_minutes,
+        price_key="market_price_per_kwh",
+    )
 
     card = [
         {"start_time": row["start_time"], "price_per_kwh": round_value(row["price_per_kwh"], round_decimals)}
@@ -248,6 +258,9 @@ def build_timeline_stats(
         "last_successful_source_id": store.last_successful_source_id,
         "source_health": store.source_health,
         "timeline_status": timeline_state,
+        "energy_surcharge_percent": energy_surcharge_percent,
+        "energy_surcharge_absolute": energy_surcharge_absolute,
+        "energy_tax_percent": energy_tax_percent,
         "updated_at": format_iso(now, timespec="seconds"),
     }
 
@@ -257,6 +270,8 @@ def build_timeline_stats(
         attributes=attrs,
         current_price=round_value(current_price, round_decimals),
         current_price_start_time=current_price_start,
+        current_market_price=round_value(current_market_price, round_decimals),
+        current_market_price_start_time=current_market_price_start,
         status=timeline_state,
     )
 
@@ -271,7 +286,7 @@ def compute_timeline_status(*, today_rows: int, tomorrow_rows: int, has_primary_
     if today_rows <= 0 and tomorrow_rows > 0:
         return "tomorrow_only"
     if tomorrow_rows > 0 and not has_primary_tomorrow:
-        return "tomorrow_not_from_prio0"
+        return "tomorrow_not_from_provider_1"
     return "today_and_tomorrow"
 
 
@@ -341,6 +356,7 @@ def current_price_for_now(
     now: datetime,
     tz: ZoneInfo,
     fallback_slot_minutes: int,
+    price_key: str = "price_per_kwh",
 ) -> tuple[float | None, str | None]:
     """Return the price segment covering the current instant."""
 
@@ -357,7 +373,7 @@ def current_price_for_now(
         next_dt = parsed_rows[idx + 1][0] if idx + 1 < len(parsed_rows) else dt + timedelta(minutes=fallback_slot_minutes)
         if dt <= now < next_dt:
             try:
-                return float(row["price_per_kwh"]), row["start_time"]
+                return float(row.get(price_key, row["price_per_kwh"])), row["start_time"]
             except (TypeError, ValueError):
                 return None, None
 

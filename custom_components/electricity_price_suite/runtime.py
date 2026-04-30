@@ -20,22 +20,38 @@ from .consumption_stats import build_consumption_metrics
 from .const import (
     ATTR_PRICE_PER_KWH,
     ATTR_START_TIME,
+    CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
     CONF_BASIC_FEE_AMOUNT,
     CONF_BASIC_FEE_MODE,
-    CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
+    CONF_BILLING_SLOT_MINUTES,
     CONF_CACHE_RETENTION_DAYS,
     CONF_CONSUMPTION_ENERGY_ENTITY,
-    CONF_CURRENCY,
-    CONF_ENABLE_CURRENT_PRICE_SENSOR,
+    CONF_CURRENT_MONTH_FIXED_FEE_MODE,
+    CONF_ENABLE_CONSUMPTION_TRACKING,
+    CONF_ENERGY_SURCHARGE_ABSOLUTE,
+    CONF_ENERGY_SURCHARGE_PERCENT,
+    CONF_ENERGY_TAX_PERCENT,
+    CONF_FIXED_FEE_DAILY_AMOUNT,
+    CONF_FIXED_FEE_MONTHLY_AMOUNT,
+    CONF_FIXED_FEE_TAX_PERCENT,
+    CONF_FIXED_FEE_VALUES_INCLUDE_TAX,
     CONF_PLANNER_DEVICES,
     CONF_SOURCE_CHAIN,
     CONF_ROUND_DECIMALS,
+    DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE,
     DEFAULT_BASIC_FEE_AMOUNT,
     DEFAULT_BASIC_FEE_MODE,
-    DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE,
     DEFAULT_BILLING_SLOT_MINUTES,
     DEFAULT_CONSUMPTION_RETENTION_DAYS,
-    DEFAULT_ENABLE_CURRENT_PRICE_SENSOR,
+    DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE,
+    DEFAULT_ENABLE_CONSUMPTION_TRACKING,
+    DEFAULT_ENERGY_SURCHARGE_ABSOLUTE,
+    DEFAULT_ENERGY_SURCHARGE_PERCENT,
+    DEFAULT_ENERGY_TAX_PERCENT,
+    DEFAULT_FIXED_FEE_DAILY_AMOUNT,
+    DEFAULT_FIXED_FEE_MONTHLY_AMOUNT,
+    DEFAULT_FIXED_FEE_TAX_PERCENT,
+    DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX,
     DEFAULT_PLANNER_DEVICES,
     DEFAULT_ROUND_DECIMALS,
     DOMAIN,
@@ -67,6 +83,44 @@ from .timeline_stats import (
 from .time_utils import format_iso
 
 _LOGGER = logging.getLogger(__name__)
+_DIRECT_PROVIDER_TYPES = {"tibber", "smard", "energy_charts", "entsoe"}
+_DEFAULT_SLOT_MAPPING = {"time_key": "start_time", "price_key": "price_per_kwh"}
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _legacy_fixed_fee_defaults(data: dict[str, Any]) -> dict[str, Any]:
+    monthly_amount = data.get(CONF_FIXED_FEE_MONTHLY_AMOUNT)
+    daily_amount = data.get(CONF_FIXED_FEE_DAILY_AMOUNT)
+    tax_percent = data.get(CONF_FIXED_FEE_TAX_PERCENT)
+    values_include_tax = data.get(CONF_FIXED_FEE_VALUES_INCLUDE_TAX)
+    month_mode = data.get(CONF_CURRENT_MONTH_FIXED_FEE_MODE)
+
+    if monthly_amount is None and daily_amount is None:
+        legacy_mode = str(data.get(CONF_BASIC_FEE_MODE, DEFAULT_BASIC_FEE_MODE))
+        legacy_amount = float(data.get(CONF_BASIC_FEE_AMOUNT, DEFAULT_BASIC_FEE_AMOUNT) or 0.0)
+        if legacy_mode == "monthly":
+            monthly_amount = legacy_amount
+        elif legacy_mode == "daily":
+            daily_amount = legacy_amount
+
+    return {
+        CONF_FIXED_FEE_MONTHLY_AMOUNT: float(monthly_amount if monthly_amount is not None else DEFAULT_FIXED_FEE_MONTHLY_AMOUNT),
+        CONF_FIXED_FEE_DAILY_AMOUNT: float(daily_amount if daily_amount is not None else DEFAULT_FIXED_FEE_DAILY_AMOUNT),
+        CONF_FIXED_FEE_TAX_PERCENT: float(tax_percent if tax_percent is not None else DEFAULT_FIXED_FEE_TAX_PERCENT),
+        CONF_FIXED_FEE_VALUES_INCLUDE_TAX: _as_bool(
+            DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX if values_include_tax is None else values_include_tax
+        ),
+        CONF_CURRENT_MONTH_FIXED_FEE_MODE: str(
+            month_mode if month_mode is not None else DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE
+        ),
+    }
 
 
 class TimelineRuntime:
@@ -80,15 +134,15 @@ class TimelineRuntime:
         self.timeline_slug = slugify(self.timeline_name)
 
         self.timezone = hass.config.time_zone
-        self.currency = entry.options.get(CONF_CURRENCY, entry.data.get(CONF_CURRENCY, "EUR"))
+        self.currency = "EUR"
+        self.billing_slot_minutes = int(
+            entry.options.get(
+                CONF_BILLING_SLOT_MINUTES,
+                entry.data.get(CONF_BILLING_SLOT_MINUTES, DEFAULT_BILLING_SLOT_MINUTES),
+            )
+        )
         self.round_decimals = int(
             entry.options.get(CONF_ROUND_DECIMALS, entry.data.get(CONF_ROUND_DECIMALS, DEFAULT_ROUND_DECIMALS))
-        )
-        self.enable_current_price_sensor = bool(
-            entry.options.get(
-                CONF_ENABLE_CURRENT_PRICE_SENSOR,
-                entry.data.get(CONF_ENABLE_CURRENT_PRICE_SENSOR, DEFAULT_ENABLE_CURRENT_PRICE_SENSOR),
-            )
         )
         self.source_chain = list(
             entry.options.get(CONF_SOURCE_CHAIN, entry.data.get(CONF_SOURCE_CHAIN, []))
@@ -100,12 +154,39 @@ class TimelineRuntime:
             )
             or ""
         ).strip()
-        self.basic_fee_mode = str(
-            entry.options.get(CONF_BASIC_FEE_MODE, entry.data.get(CONF_BASIC_FEE_MODE, DEFAULT_BASIC_FEE_MODE))
+        self.enable_consumption_tracking = _as_bool(
+            entry.options.get(
+                CONF_ENABLE_CONSUMPTION_TRACKING,
+                entry.data.get(
+                    CONF_ENABLE_CONSUMPTION_TRACKING,
+                    bool(self.consumption_energy_entity) or DEFAULT_ENABLE_CONSUMPTION_TRACKING,
+                ),
+            )
         )
-        self.basic_fee_amount = float(
-            entry.options.get(CONF_BASIC_FEE_AMOUNT, entry.data.get(CONF_BASIC_FEE_AMOUNT, DEFAULT_BASIC_FEE_AMOUNT))
+        self.energy_surcharge_percent = float(
+            entry.options.get(
+                CONF_ENERGY_SURCHARGE_PERCENT,
+                entry.data.get(CONF_ENERGY_SURCHARGE_PERCENT, DEFAULT_ENERGY_SURCHARGE_PERCENT),
+            )
         )
+        self.energy_surcharge_absolute = float(
+            entry.options.get(
+                CONF_ENERGY_SURCHARGE_ABSOLUTE,
+                entry.data.get(CONF_ENERGY_SURCHARGE_ABSOLUTE, DEFAULT_ENERGY_SURCHARGE_ABSOLUTE),
+            )
+        )
+        self.energy_tax_percent = float(
+            entry.options.get(
+                CONF_ENERGY_TAX_PERCENT,
+                entry.data.get(CONF_ENERGY_TAX_PERCENT, DEFAULT_ENERGY_TAX_PERCENT),
+            )
+        )
+        fixed_fee_values = _legacy_fixed_fee_defaults({**entry.data, **entry.options})
+        self.fixed_fee_monthly_amount = float(fixed_fee_values[CONF_FIXED_FEE_MONTHLY_AMOUNT])
+        self.fixed_fee_daily_amount = float(fixed_fee_values[CONF_FIXED_FEE_DAILY_AMOUNT])
+        self.fixed_fee_tax_percent = float(fixed_fee_values[CONF_FIXED_FEE_TAX_PERCENT])
+        self.fixed_fee_values_include_tax = bool(fixed_fee_values[CONF_FIXED_FEE_VALUES_INCLUDE_TAX])
+        self.current_month_fixed_fee_mode = str(fixed_fee_values[CONF_CURRENT_MONTH_FIXED_FEE_MODE])
         self.avg_price_include_basic_fee = bool(
             entry.options.get(
                 CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
@@ -125,6 +206,7 @@ class TimelineRuntime:
 
         self.timeline_sensor = None
         self.current_price_sensor = None
+        self.current_market_price_sensor = None
         self.status_sensor = None
         self.consumption_sensors: dict[str, Any] = {}
         self.plan_sensors: dict[str, Any] = {}
@@ -138,9 +220,40 @@ class TimelineRuntime:
             attributes={},
             current_price=None,
             current_price_start_time=None,
+            current_market_price=None,
+            current_market_price_start_time=None,
             status="no_data",
         )
         self.latest_consumption_metrics: dict[str, Any] = {}
+
+    def _apply_energy_price_formula(self, market_price_per_kwh: float) -> float:
+        gross = ((float(market_price_per_kwh) * (1.0 + (self.energy_surcharge_percent / 100.0))) + self.energy_surcharge_absolute) * (
+            1.0 + (self.energy_tax_percent / 100.0)
+        )
+        return gross
+
+    def _finalize_slot_records(self, slots: list[SlotRecord]) -> list[SlotRecord]:
+        finalized: list[SlotRecord] = []
+        for slot in slots:
+            market_price = float(slot.market_price_per_kwh)
+            final_price = (
+                float(slot.provider_final_price_per_kwh)
+                if slot.provider_final_price_per_kwh is not None
+                else self._apply_energy_price_formula(market_price)
+            )
+            finalized.append(
+                SlotRecord(
+                    start_time=slot.start_time,
+                    market_price_per_kwh=market_price,
+                    price_per_kwh=final_price,
+                    provider_final_price_per_kwh=slot.provider_final_price_per_kwh,
+                    source_id=slot.source_id,
+                    source_priority=slot.source_priority,
+                    is_primary_source=slot.is_primary_source,
+                    observed_at=slot.observed_at,
+                )
+            )
+        return finalized
 
     def _normalize_planner_devices(self, raw: Any) -> list[str]:
         items = raw if isinstance(raw, list) else []
@@ -174,13 +287,22 @@ class TimelineRuntime:
         return f"{planner_slug}__{device_slug}"
 
     def _detect_billing_slot_minutes(self, rows: list[dict[str, float | str]]) -> int:
-        return detect_billing_slot_minutes(rows, self.timezone, DEFAULT_BILLING_SLOT_MINUTES)
+        return detect_billing_slot_minutes(rows, self.timezone, self.billing_slot_minutes)
 
     async def async_initialize(self) -> None:
         await self.store.async_load()
+        sources_changed = False
+        for source in self.store.get_sources():
+            if source.get("type") in _DIRECT_PROVIDER_TYPES and source.get("slot_mapping") == _DEFAULT_SLOT_MAPPING:
+                normalized = dict(source)
+                normalized.pop("slot_mapping", None)
+                self.store.upsert_source(normalized)
+                sources_changed = True
         if not self.store.get_sources():
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
+            sources_changed = True
+        if sources_changed:
             await self.store.async_save()
         await self._rebuild_from_store()
         await self._async_update_consumption_metrics(sample_now=True)
@@ -238,7 +360,6 @@ class TimelineRuntime:
         normalized.setdefault("id", f"source_{fallback_priority}")
         normalized.setdefault("priority", fallback_priority)
         normalized.setdefault("enabled", True)
-        normalized.setdefault("slot_mapping", {"time_key": "start_time", "price_key": "price_per_kwh"})
         return normalized
 
     def _enabled_sources(self, override_sources: list[Any] | None = None) -> list[SourceConfig]:
@@ -294,7 +415,7 @@ class TimelineRuntime:
                 "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
                 "cleared_rows": cleared_rows,
                 "reason": "no_sources_configured",
-                "hint": "Configure a primary source via config flow or manage_sources service.",
+                "hint": "Configure providers via the timeline config flow.",
             }
 
         if overwrite and only_today_tomorrow:
@@ -323,6 +444,8 @@ class TimelineRuntime:
                 slots = self._filter_today_tomorrow_slots(slots)
             if not slots:
                 continue
+
+            slots = self._finalize_slot_records(slots)
 
             # For fallback sources, keep only days still missing on primary level.
             if int(source.get("priority", 9999)) > 0:
@@ -423,6 +546,101 @@ class TimelineRuntime:
             "source_count": len(self.store.get_sources()),
         }
 
+    async def async_migrate_timeline_storage(
+        self,
+        *,
+        planner_name: str | None,
+        preserve_plans: bool,
+        clear_sources: bool,
+        clear_slots: bool,
+        clear_consumption: bool,
+        dry_run: bool,
+    ) -> dict[str, Any]:
+        fallback_planner_name = str(planner_name or "").strip() or (
+            self.planner_devices[0] if self.planner_devices else "Geräteplanung"
+        )
+        fallback_planner_slug = slugify(fallback_planner_name)
+
+        plans_before = self.store.get_plans()
+        migrated_plans: dict[str, PlanPayload] = {}
+        migrated_plan_count = 0
+        deleted_plan_count = 0
+
+        if preserve_plans:
+            for plan_key, payload in plans_before.items():
+                plan_payload = dict(payload)
+                changed = False
+
+                device_name = str(
+                    plan_payload.get("device_name")
+                    or plan_payload.get("device_slug")
+                    or plan_key.split("__")[-1]
+                    or "device"
+                ).strip()
+                device_slug = str(plan_payload.get("device_slug") or "").strip() or slugify(device_name)
+
+                resolved_planner_name = str(plan_payload.get("planner_name") or "").strip() or fallback_planner_name
+                resolved_planner_slug = str(plan_payload.get("planner_slug") or "").strip() or slugify(
+                    resolved_planner_name
+                )
+
+                if plan_payload.get("device_name") != device_name:
+                    plan_payload["device_name"] = device_name
+                    changed = True
+                if plan_payload.get("device_slug") != device_slug:
+                    plan_payload["device_slug"] = device_slug
+                    changed = True
+                if plan_payload.get("planner_name") != resolved_planner_name:
+                    plan_payload["planner_name"] = resolved_planner_name
+                    changed = True
+                if plan_payload.get("planner_slug") != resolved_planner_slug:
+                    plan_payload["planner_slug"] = resolved_planner_slug
+                    changed = True
+
+                migrated_plans[plan_key] = plan_payload
+                if changed:
+                    migrated_plan_count += 1
+        else:
+            deleted_plan_count = len(plans_before)
+
+        summary = self.store.clear_runtime_state(
+            clear_slots=clear_slots,
+            clear_sources=clear_sources,
+            clear_consumption=clear_consumption,
+            dry_run=dry_run,
+        )
+        summary.update(
+            {
+                "preserved_plans": len(migrated_plans) if preserve_plans else 0,
+                "deleted_plans": deleted_plan_count,
+                "migrated_plans": migrated_plan_count,
+                "fallback_planner_name": fallback_planner_name,
+                "fallback_planner_slug": fallback_planner_slug,
+                "dry_run": bool(dry_run),
+            }
+        )
+
+        if dry_run:
+            return summary
+
+        if preserve_plans:
+            self.store.replace_plans(migrated_plans)
+        else:
+            self.store.replace_plans({})
+
+        await self.store.async_save()
+
+        if not preserve_plans:
+            self.plan_sensors.clear()
+        else:
+            for plan_key, payload in migrated_plans.items():
+                if plan_key in self.plan_sensors:
+                    self.plan_sensors[plan_key].async_update_from_payload(payload)
+
+        await self._rebuild_from_store()
+        self.write_state_entities()
+        return summary
+
     async def async_inject_slots(
         self,
         *,
@@ -438,10 +656,12 @@ class TimelineRuntime:
             "slot_mapping": {"time_key": ATTR_START_TIME, "price_key": ATTR_PRICE_PER_KWH},
         }
         normalized = normalize_slots(slots_payload, source)
+        normalized = self._finalize_slot_records(normalized)
         if is_primary:
             normalized = [
                 SlotRecord(
                     start_time=s.start_time,
+                    market_price_per_kwh=s.market_price_per_kwh,
                     price_per_kwh=s.price_per_kwh,
                     source_id=s.source_id,
                     source_priority=s.source_priority,
@@ -879,6 +1099,7 @@ class TimelineRuntime:
         return [
             {
                 "start_time": item["start_time"],
+                "market_price_per_kwh": item.get("market_price_per_kwh", item["price_per_kwh"]),
                 "price_per_kwh": item["price_per_kwh"],
             }
             for item in self.store.get_slots()
@@ -959,7 +1180,7 @@ class TimelineRuntime:
 
     @property
     def has_consumption_tracking(self) -> bool:
-        return bool(self.consumption_energy_entity)
+        return self.enable_consumption_tracking and bool(self.consumption_energy_entity)
 
     def _read_consumption_energy_kwh(self) -> float | None:
         if not self.has_consumption_tracking:
@@ -1126,7 +1347,10 @@ class TimelineRuntime:
             timezone_name=self.timezone,
             currency=self.currency,
             round_decimals=self.round_decimals,
-            fallback_slot_minutes=DEFAULT_BILLING_SLOT_MINUTES,
+            fallback_slot_minutes=self.billing_slot_minutes,
+            energy_surcharge_percent=self.energy_surcharge_percent,
+            energy_surcharge_absolute=self.energy_surcharge_absolute,
+            energy_tax_percent=self.energy_tax_percent,
         )
 
     def _compute_consumption_metrics(self) -> dict[str, Any]:
@@ -1137,8 +1361,11 @@ class TimelineRuntime:
             monthly_rollups=self.store.get_consumption_monthly_rollups(),
             timezone_name=self.timezone,
             round_decimals=self.round_decimals,
-            basic_fee_mode=self.basic_fee_mode,
-            basic_fee_amount=self.basic_fee_amount,
+            fixed_fee_monthly_amount=self.fixed_fee_monthly_amount,
+            fixed_fee_daily_amount=self.fixed_fee_daily_amount,
+            fixed_fee_tax_percent=self.fixed_fee_tax_percent,
+            fixed_fee_values_include_tax=self.fixed_fee_values_include_tax,
+            current_month_fixed_fee_mode=self.current_month_fixed_fee_mode,
             avg_price_include_basic_fee=self.avg_price_include_basic_fee,
             consumption_energy_entity=self.consumption_energy_entity,
         )
@@ -1164,6 +1391,8 @@ class TimelineRuntime:
             self.status_sensor.async_write_ha_state()
         if self.current_price_sensor is not None:
             self.current_price_sensor.async_write_ha_state()
+        if self.current_market_price_sensor is not None:
+            self.current_market_price_sensor.async_write_ha_state()
         for sensor in self.consumption_sensors.values():
             sensor.async_write_ha_state()
 
@@ -1190,18 +1419,14 @@ class TimelineRuntime:
     def _next_time_update_dt(self) -> datetime | None:
         tz = ZoneInfo(self.timezone)
         now = datetime.now(tz)
-        candidates: list[datetime] = []
-
-        next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        candidates.append(next_midnight)
-
-        next_slot = self._next_slot_start_after(now)
-        if next_slot is not None:
-            candidates.append(next_slot)
-
-        if not candidates:
-            return None
-        return min(candidates)
+        slot_minutes = 60 if self.billing_slot_minutes == 60 else 15
+        current_slot_minute = (now.minute // slot_minutes) * slot_minutes
+        current_boundary = now.replace(minute=current_slot_minute, second=0, microsecond=0)
+        next_boundary = current_boundary + timedelta(minutes=slot_minutes)
+        if next_boundary <= now:
+            next_boundary = now + timedelta(minutes=slot_minutes)
+            next_boundary = next_boundary.replace(second=0, microsecond=0)
+        return next_boundary
 
     def _next_slot_start_after(self, now: datetime) -> datetime | None:
         return next_slot_start_after(self.store.get_slots(), now, self.timezone)
@@ -1257,7 +1482,7 @@ class TimelineRuntime:
                 return (now + timedelta(days=1)).replace(hour=12, minute=1, second=0, microsecond=0)
             return next_minute_mark((1, 31), now)
 
-        if status == "tomorrow_not_from_prio0":
+        if status == "tomorrow_not_from_provider_1":
             return next_minute_mark((1,), now)
 
         return None

@@ -8,7 +8,7 @@ refresh_timeline:
     sources:
       required: false
       description: Optional temporary source override list for this call only.
-      example: "[{\"id\": \"primary_action\", \"type\": \"entity_action\", \"priority\": 0, \"response_path\": \"prices.home\", \"slot_mapping\": {\"time_key\": \"start_time\", \"price_key\": \"price\"}}]"
+      example: "[{\"id\": \"provider_1_smard\", \"type\": \"smard\", \"priority\": 0, \"market_area\": \"DE-LU\", \"duration_minutes\": 15}]"
       selector:
         object: {}
     overwrite:
@@ -18,113 +18,49 @@ refresh_timeline:
       selector:
         boolean: {}
 
-manage_sources:
-  name: Manage sources
-  description: Add, list, or delete pull sources in the timeline source chain.
+migrate_timeline_storage:
+  name: Migrate timeline storage
+  description: One-time cleanup helper for upgrading old timeline storage to the new direct-provider model while optionally preserving plans.
   target:
     entity:
       domain: sensor
   fields:
-    mode:
-      required: true
-      description: Management mode. Only used for mode=add, list, delete.
-      example: "add"
-      selector:
-        select:
-          options:
-            - "add"
-            - "list"
-            - "delete"
-    id:
+    planner_name:
       required: false
-      description: Unique source identifier inside the selected timeline. Only used for mode=add, list, delete.
-      example: "primary_action"
+      description: Optional fallback planner name used when preserved legacy plans are missing planner metadata.
+      example: "Geräteplanung"
       selector:
         text: {}
-    priority:
+    preserve_plans:
       required: false
-      description: Source priority (lower number wins in conflicts). Only used for mode=add.
-      example: "0"
-      selector:
-        number:
-          min: 0
-          max: 9999
-          mode: box
-    source_type:
-      required: false
-      description: Pull source mode. Use entity_attribute for attributes or entity_action for service responses. Only used for mode=add.
-      example: "entity_action"
-      selector:
-        select:
-          options:
-            - "entity_attribute"
-            - "entity_action"
-    source_entity_id:
-      required: false
-      description: Entity used by the source (required for entity_attribute, optional for entity_action). Only used for mode=add.
-      example: "sensor.market_data_total_price"
-      selector:
-        entity: {}
-    attribute:
-      required: false
-      description: Attribute name that contains slot rows (entity_attribute only). Only used for mode=add.
-      example: "data"
-      selector:
-        text: {}
-    action:
-      required: false
-      description: Service action to call (entity_action only), format domain.service. Only used for mode=add.
-      example: "tibber.get_prices"
-      selector:
-        text: {}
-    response_path:
-      required: false
-      description: Dotted path to slot list in the action response. Only used for mode=add.
-      example: "prices.tibber-home"
-      selector:
-        text: {}
-    request_payload:
-      required: false
-      description: Additional payload forwarded to the action call. Only used for mode=add.
-      example: "{}"
-      selector:
-        object: {}
-    time_key:
-      required: false
-      description: Key name used for slot start datetime in each row. Only used for mode=add.
-      example: "start_time"
-      selector:
-        text: {}
-    price_key:
-      required: false
-      description: Key name used for price value in each row. Only used for mode=add.
-      example: "price_per_kwh"
-      selector:
-        text: {}
-    inject_time_window:
-      required: false
-      description: Auto-inject start/end values for today and tomorrow into action payload. Only used for mode=add.
+      description: Keep stored plans and enrich missing planner or device metadata where needed.
       example: "true"
       selector:
         boolean: {}
-    start_key:
+    clear_sources:
       required: false
-      description: Payload key to write injected start datetime into. Only used for mode=add.
-      example: "start"
+      description: Remove stored provider source rows from the timeline store so the new config-flow provider chain becomes authoritative.
+      example: "true"
       selector:
-        text: {}
-    end_key:
+        boolean: {}
+    clear_slots:
       required: false
-      description: Payload key to write injected end datetime into. Only used for mode=add.
-      example: "end"
+      description: Delete persisted timeline price rows, source-health state, and refresh timestamps.
+      example: "true"
       selector:
-        text: {}
-    time_format:
+        boolean: {}
+    clear_consumption:
       required: false
-      description: Datetime format for injected start/end values. Only used for mode=add.
-      example: "%Y-%m-%d %H:%M:%S"
+      description: Delete persisted consumption slot data, monthly consumption rollups, and the last consumption snapshot.
+      example: "true"
       selector:
-        text: {}
+        boolean: {}
+    dry_run:
+      required: false
+      description: Preview what would be cleaned or preserved without writing changes.
+      example: "false"
+      selector:
+        boolean: {}
 
 inject_slots:
   name: Inject slots

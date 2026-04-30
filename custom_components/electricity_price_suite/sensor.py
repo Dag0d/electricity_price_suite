@@ -63,16 +63,12 @@ async def _async_setup_timeline_entry(runtime: TimelineRuntime, async_add_entiti
     status_sensor = TimelineStatusSensor(runtime)
     entities.append(status_sensor)
     runtime.status_sensor = status_sensor
-    if runtime.enable_current_price_sensor:
-        current_price = CurrentPriceSensor(runtime)
-        entities.append(current_price)
-        runtime.current_price_sensor = current_price
-    else:
-        runtime.current_price_sensor = None
-        unique_id = f"{runtime.entry.entry_id}_current_price"
-        stale_entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
-        if stale_entity_id:
-            registry.async_remove(stale_entity_id)
+    current_price = CurrentPriceSensor(runtime)
+    entities.append(current_price)
+    runtime.current_price_sensor = current_price
+    current_market_price = CurrentMarketPriceSensor(runtime)
+    entities.append(current_market_price)
+    runtime.current_market_price_sensor = current_market_price
     if runtime.has_consumption_tracking:
         for spec in _CONSUMPTION_SENSOR_SPECS:
             sensor = TimelineConsumptionSensor(runtime, spec["key"], spec["translation_key"], spec["kind"])
@@ -225,6 +221,32 @@ class CurrentPriceSensor(BaseSuiteEntity):
         return {"start_time": self.runtime.latest_stats.current_price_start_time, "currency": self.runtime.currency}
 
 
+class CurrentMarketPriceSensor(BaseSuiteEntity):
+    _attr_should_poll = False
+    _attr_translation_key = "current_market_price"
+
+    def __init__(self, runtime: TimelineRuntime) -> None:
+        super().__init__(runtime)
+        self._attr_unique_id = f"{runtime.entry.entry_id}_current_market_price"
+        self.entity_id = f"sensor.{runtime.timeline_slug}_current_market_price"
+        self._attr_native_unit_of_measurement = f"{runtime.currency}/kWh"
+
+    @property
+    def icon(self) -> str:
+        return "mdi:chart-line"
+
+    @property
+    def native_value(self):
+        return self.runtime.latest_stats.current_market_price
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "start_time": self.runtime.latest_stats.current_market_price_start_time,
+            "currency": self.runtime.currency,
+        }
+
+
 class TimelineConsumptionSensor(BaseSuiteEntity):
     _attr_should_poll = False
     _attr_suggested_display_precision = 4
@@ -272,8 +294,21 @@ class TimelineConsumptionSensor(BaseSuiteEntity):
             "cost_yesterday_incl_basic_fee",
             "cost_last_month_incl_basic_fee",
         }:
-            attrs["basic_fee_mode"] = self.runtime.latest_consumption_metrics.get("basic_fee_mode")
-            attrs["basic_fee_amount"] = self.runtime.latest_consumption_metrics.get("basic_fee_amount")
+            attrs["fixed_fee_monthly_amount"] = self.runtime.latest_consumption_metrics.get(
+                "fixed_fee_monthly_amount"
+            )
+            attrs["fixed_fee_daily_amount"] = self.runtime.latest_consumption_metrics.get(
+                "fixed_fee_daily_amount"
+            )
+            attrs["fixed_fee_tax_percent"] = self.runtime.latest_consumption_metrics.get(
+                "fixed_fee_tax_percent"
+            )
+            attrs["fixed_fee_values_include_tax"] = self.runtime.latest_consumption_metrics.get(
+                "fixed_fee_values_include_tax"
+            )
+            attrs["current_month_fixed_fee_mode"] = self.runtime.latest_consumption_metrics.get(
+                "current_month_fixed_fee_mode"
+            )
         return attrs
 
 
@@ -294,7 +329,7 @@ class TimelineStatusSensor(BaseSuiteEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
-            "status_values": ["no_data", "today_only", "tomorrow_only", "tomorrow_not_from_prio0", "today_and_tomorrow"],
+            "status_values": ["no_data", "today_only", "tomorrow_only", "tomorrow_not_from_provider_1", "today_and_tomorrow"],
             "today_rows": self.runtime.latest_stats.attributes.get("today_rows", 0),
             "tomorrow_rows": self.runtime.latest_stats.attributes.get("tomorrow_rows", 0),
             "last_source_chain_fetch_at": self.runtime.latest_stats.attributes.get("last_source_chain_fetch_at"),

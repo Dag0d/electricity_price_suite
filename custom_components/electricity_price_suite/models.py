@@ -15,7 +15,9 @@ class SlotRecord:
     """Normalized slot entry persisted in internal store."""
 
     start_time: str
+    market_price_per_kwh: float
     price_per_kwh: float
+    provider_final_price_per_kwh: float | None
     source_id: str
     source_priority: int
     is_primary_source: bool
@@ -29,7 +31,9 @@ class SlotRow(TypedDict):
     """Normalized slot row shape used across store/runtime boundaries."""
 
     start_time: str
+    market_price_per_kwh: float
     price_per_kwh: float
+    provider_final_price_per_kwh: float | None
     source_id: str
     source_priority: int
     is_primary_source: bool
@@ -63,17 +67,11 @@ class SourceConfig(TypedDict, total=False):
     type: str
     priority: int
     enabled: bool
-    entity_id: str
-    attribute: str
-    action: str
-    response_path: str
-    request_payload: dict[str, Any]
-    inject_time_window: bool
-    start_key: str
-    end_key: str
-    time_format: str
-    timezone: str
     slot_mapping: dict[str, str]
+    market_area: str
+    duration_minutes: int
+    token: str
+    home_index: int
 
 
 class PlanPayload(TypedDict):
@@ -121,6 +119,8 @@ class TimelineStats:
     attributes: dict[str, Any]
     current_price: float | None
     current_price_start_time: str | None
+    current_market_price: float | None
+    current_market_price_start_time: str | None
     status: str
 
 

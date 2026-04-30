@@ -25,10 +25,10 @@ from .const import (
     ENTRY_TYPE_TIMELINE,
     PLATFORMS,
     SERVICE_INJECT_SLOTS,
+    SERVICE_MIGRATE_TIMELINE_STORAGE,
     SERVICE_MANAGE_PROFILE,
     SERVICE_MANAGE_PLAN,
     SERVICE_MANAGE_PROFILE_RUN,
-    SERVICE_MANAGE_SOURCES,
     SERVICE_OPTIMIZE_DEVICE,
     SERVICE_REFRESH_TIMELINE,
 )
@@ -41,6 +41,15 @@ _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 REFRESH_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("sources"): [dict], vol.Optional("overwrite", default=False): cv.boolean})
+MIGRATE_TIMELINE_STORAGE_SCHEMA = vol.Schema({
+    **cv.TARGET_SERVICE_FIELDS,
+    vol.Optional("planner_name"): cv.string,
+    vol.Optional("preserve_plans", default=True): cv.boolean,
+    vol.Optional("clear_sources", default=True): cv.boolean,
+    vol.Optional("clear_slots", default=True): cv.boolean,
+    vol.Optional("clear_consumption", default=True): cv.boolean,
+    vol.Optional("dry_run", default=False): cv.boolean,
+})
 INJECT_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required(ATTR_SLOTS): [dict], vol.Optional("source_name", default="manual_inject"): cv.string, vol.Optional("source_priority", default=9999): vol.Coerce(int), vol.Optional("is_primary", default=False): cv.boolean, vol.Optional("overwrite", default=False): cv.boolean})
 OPTIMIZE_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
@@ -64,25 +73,6 @@ OPTIMIZE_SCHEMA = vol.Schema({
     vol.Optional("latest_finish"): cv.string,
 })
 MANAGE_PLAN_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required("mode"): vol.In(["reset", "delete", "reoptimize"])})
-MANAGE_SOURCES_SCHEMA = vol.Schema({
-    **cv.TARGET_SERVICE_FIELDS,
-    vol.Required("mode"): vol.In(["add", "list", "delete"]),
-    vol.Optional("id"): cv.string,
-    vol.Optional("source_type"): vol.In(["entity_attribute", "entity_action"]),
-    vol.Optional("priority"): vol.Coerce(int),
-    vol.Optional("source_entity_id"): cv.entity_id,
-    vol.Optional("attribute"): cv.string,
-    vol.Optional("action"): cv.string,
-    vol.Optional("response_path"): cv.string,
-    vol.Optional("request_payload", default={}): dict,
-    vol.Optional("time_key", default="start_time"): cv.string,
-    vol.Optional("price_key", default="price_per_kwh"): cv.string,
-    vol.Optional("enabled", default=True): cv.boolean,
-    vol.Optional("inject_time_window", default=True): cv.boolean,
-    vol.Optional("start_key", default="start"): cv.string,
-    vol.Optional("end_key", default="end"): cv.string,
-    vol.Optional("time_format", default="%Y-%m-%d %H:%M:%S"): cv.string,
-})
 LOGGER_MANAGE_RUN_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
     vol.Required("mode"): vol.In(["start", "finish", "abort"]),
@@ -133,39 +123,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             raise HomeAssistantError(error_message)
         return entity_ids
 
-    def _build_source_from_service_call(call: ServiceCall) -> dict[str, Any]:
-        source_type = call.data["source_type"]
-        source = {
-            "id": call.data["id"],
-            "type": source_type,
-            "priority": call.data.get("priority", 9999),
-            "enabled": call.data["enabled"],
-            "slot_mapping": {
-                "time_key": call.data["time_key"],
-                "price_key": call.data["price_key"],
-            },
-        }
-        if source_type == "entity_attribute":
-            if not call.data.get("source_entity_id") or not call.data.get("attribute"):
-                raise HomeAssistantError("entity_attribute requires source_entity_id and attribute")
-            source["entity_id"] = call.data["source_entity_id"]
-            source["attribute"] = call.data["attribute"]
-            return source
-
-        if not call.data.get("action") or not call.data.get("response_path"):
-            raise HomeAssistantError("entity_action requires action and response_path")
-        source["action"] = call.data["action"]
-        source["response_path"] = call.data["response_path"]
-        source["request_payload"] = call.data["request_payload"]
-        source["inject_time_window"] = call.data["inject_time_window"]
-        source["start_key"] = call.data["start_key"]
-        source["end_key"] = call.data["end_key"]
-        source["time_format"] = call.data["time_format"]
-        source["timezone"] = hass.config.time_zone
-        if call.data.get("source_entity_id"):
-            source["entity_id"] = call.data["source_entity_id"]
-        return source
-
     async def _resolve_timeline(call: ServiceCall) -> TimelineRuntime:
         entity_id = _get_single_target_entity(call, "exactly one timeline target entity is required")
         runtime = resolve_timeline_runtime(hass.data[DOMAIN], entity_id)
@@ -194,6 +151,19 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             source_priority=call.data["source_priority"],
             is_primary=call.data["is_primary"],
             overwrite=call.data["overwrite"],
+        )
+        _write_timeline_entities(runtime)
+        return response
+
+    async def handle_migrate_timeline_storage(call: ServiceCall) -> dict[str, Any]:
+        runtime = await _resolve_timeline(call)
+        response = await runtime.async_migrate_timeline_storage(
+            planner_name=call.data.get("planner_name"),
+            preserve_plans=bool(call.data["preserve_plans"]),
+            clear_sources=bool(call.data["clear_sources"]),
+            clear_slots=bool(call.data["clear_slots"]),
+            clear_consumption=bool(call.data["clear_consumption"]),
+            dry_run=bool(call.data["dry_run"]),
         )
         _write_timeline_entities(runtime)
         return response
@@ -253,21 +223,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                 )
         return {"results": managed}
 
-    async def handle_manage_sources(call: ServiceCall) -> dict[str, Any]:
-        runtime = await _resolve_timeline(call)
-        mode = call.data["mode"]
-        if mode == "list":
-            return await runtime.async_list_sources(call.data.get("id"))
-        if mode == "delete":
-            if not call.data.get("id"):
-                raise HomeAssistantError("id is required for mode=delete")
-            return await runtime.async_delete_source(call.data["id"])
-        if not call.data.get("id"):
-            raise HomeAssistantError("id is required for mode=add")
-        if not call.data.get("source_type"):
-            raise HomeAssistantError("source_type is required for mode=add")
-        return await runtime.async_add_source(_build_source_from_service_call(call))
-
     async def handle_manage_profile_run(call: ServiceCall) -> dict[str, Any]:
         runtime, implicit_program_key = await _resolve_logger(call)
         mode = call.data["mode"]
@@ -319,10 +274,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     service_defs = [
         (SERVICE_REFRESH_TIMELINE, handle_refresh, REFRESH_SCHEMA),
+        (SERVICE_MIGRATE_TIMELINE_STORAGE, handle_migrate_timeline_storage, MIGRATE_TIMELINE_STORAGE_SCHEMA),
         (SERVICE_INJECT_SLOTS, handle_inject, INJECT_SCHEMA),
         (SERVICE_OPTIMIZE_DEVICE, handle_optimize, OPTIMIZE_SCHEMA),
         (SERVICE_MANAGE_PLAN, handle_manage_plan, MANAGE_PLAN_SCHEMA),
-        (SERVICE_MANAGE_SOURCES, handle_manage_sources, MANAGE_SOURCES_SCHEMA),
         (SERVICE_MANAGE_PROFILE_RUN, handle_manage_profile_run, LOGGER_MANAGE_RUN_SCHEMA),
         (SERVICE_MANAGE_PROFILE, handle_manage_profile, LOGGER_MANAGE_PROFILE_SCHEMA),
     ]
@@ -361,6 +316,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 runtime.status_sensor.async_write_ha_state()
             if runtime.current_price_sensor is not None:
                 runtime.current_price_sensor.async_write_ha_state()
+            if runtime.current_market_price_sensor is not None:
+                runtime.current_market_price_sensor.async_write_ha_state()
         except Exception as err:
             _LOGGER.warning("initial refresh failed for timeline %s: %s", runtime.timeline_slug, err)
 

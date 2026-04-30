@@ -52,7 +52,7 @@ Expected entity IDs:
 `input_select.electricity_price_suite_test_case` options:
 
 - `1_refresh_primary`
-- `2_refresh_inject_only_override`
+- `2_refresh_provider_override`
 - `3_inject_fallback_today_tomorrow`
 - `4_inject_primary_tomorrow_override`
 - `5_optimize_basic`
@@ -64,10 +64,6 @@ Expected entity IDs:
 - `11_plan_delete`
 - `12_refresh_primary_overwrite`
 - `13_optimizer_boundary_edge_case`
-- `14_add_test_source`
-- `15_list_sources`
-- `16_get_test_source_config`
-- `17_delete_test_source`
 
 ### Logger helpers
 
@@ -145,10 +141,6 @@ This will create:
   - waits until the next realistic quarter boundary plus 15 seconds,
   - and then runs the optimizer.
 - The helper `timer.electricity_price_suite_edge_case_wait` shows the remaining wait time until the optimization fires.
-- `14_add_test_source` adds one deterministic attribute source definition that reads the `data` attribute from `sensor.test_timeline_pricing_meta`.
-- `15_list_sources` should show the configured source IDs.
-- `16_get_test_source_config` should return the normalized stored config for `test_attribute_source`.
-- `17_delete_test_source` should remove that test source again.
 
 ## Logger Notes
 

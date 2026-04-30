@@ -9,22 +9,6 @@
           "entry_type": "Eintragstyp"
         }
       },
-      "timeline": {
-        "title": "Preis-Timeline erstellen",
-        "description": "Erstelle einen Preis-Timeline-Eintrag und konfiguriere sein Grundverhalten.",
-        "data": {
-          "timeline_name": "Timeline-Name",
-          "currency": "Währung",
-          "cache_retention_days": "Cache-Aufbewahrung (Tage)",
-          "round_decimals": "Anzahl Nachkommastellen für Preise",
-          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren",
-          "consumption_energy_entity": "Verbrauchs-Energie-Entität",
-          "basic_fee_mode": "Grundgebühr-Modus",
-          "basic_fee_amount": "Grundgebühr-Betrag",
-          "avg_price_include_basic_fee": "Durchschnittspreis inkl. Grundgebühr",
-          "planner_devices": "Planer-Geräte"
-        }
-      },
       "profile_logger": {
         "title": "Verbrauchsprofil-Logger erstellen",
         "description": "Erstelle einen Logger-Eintrag, der Profile aus einem total_increasing-Energiezähler lernt.",
@@ -38,51 +22,101 @@
           "blocked_programs": "Blockierte Programmschlüssel"
         }
       },
-      "primary_type": {
-        "title": "Primärquelle konfigurieren",
-        "description": "Wähle, wie die primäre Preisquelle gelesen wird.\n\n**entity_action**\nEinen Service aufrufen und die Antwort parsen.\nBeispiel: offizielle Home Assistant Tibber-Integration via `tibber.get_prices`.\n\n**entity_attribute**\nSlots aus einem Entitätsattribut lesen.\nBeispiel: EPEX Spot Integrationen, die eine Slot-Liste in einem Attribut bereitstellen.\n\n**inject_only**\nKein automatisches Laden. Daten werden per `electricity_price_suite.inject_slots` übergeben.\nJedes Slot-Objekt muss mindestens `start_time` und `price_per_kwh` enthalten.\n\nSekundäre/Fallback-Quellen können später über `manage_sources` ergänzt werden.",
+      "timeline_core": {
+        "title": "Preis-Timeline erstellen",
+        "description": "Erstelle einen Preis-Timeline-Eintrag. Definiere zuerst die Timeline-Grunddaten und die Abrechnungsauflösung, zu der alle Providerdaten passen müssen.",
         "data": {
-          "source_type": "Typ der Primärquelle"
+          "timeline_name": "Timeline-Name",
+          "billing_slot_minutes": "Abrechnungsauflösung",
+          "cache_retention_days": "Cache-Aufbewahrung (Tage)",
+          "round_decimals": "Anzahl Nachkommastellen für Preise"
         }
       },
-      "primary_inject": {
-        "title": "Primärquelle (Nur Inject)",
-        "description": "Nutze diese Option, wenn Preise manuell über electricity_price_suite.inject_slots übergeben werden. Jedes Slot-Objekt muss mindestens start_time und price_per_kwh enthalten.",
+      "provider_count": {
+        "title": "Provider-Kette konfigurieren",
+        "description": "Wähle, wie viele Provider für diese Timeline konfiguriert werden sollen. Der zuerst konfigurierte Provider wird zu Provider 1 und hat die höchste Priorität. Jeder weitere Provider dient in genau dieser Reihenfolge als nächster Fallback.",
         "data": {
-          "id": "Quellen-ID",
-          "priority": "Priorität (0 = höchste)",
-          "time_key": "Zeit-Key im Slot-Objekt",
-          "price_key": "Preis-Key im Slot-Objekt"
+          "provider_count": "Anzahl Provider"
         }
       },
-      "primary_attribute": {
-        "title": "Primärquelle (Entitätsattribut)",
-        "description": "Nutze das, wenn Preis-Slots in einem Entitätsattribut gespeichert sind (z. B. Attribut data mit Slot-Liste).",
+      "provider_type": {
+        "title": "Provider auswählen",
+        "description": "Wähle den Provider für die nächste Priorität in der Quellkette. Es werden nur Provider angezeigt, die zur gewählten Abrechnungsauflösung passen.",
         "data": {
-          "id": "Quellen-ID",
-          "priority": "Priorität (0 = höchste)",
-          "source_entity_id": "Quell-Entität",
-          "attribute": "Attributname",
-          "time_key": "Zeit-Key im Slot-Objekt",
-          "price_key": "Preis-Key im Slot-Objekt"
+          "provider_type": "Provider"
         }
       },
-      "primary_action": {
-        "title": "Primärquelle (Service-Aktion)",
-        "description": "Nutze diese Option, wenn Preise aus einer Service-Antwort kommen (zum Beispiel tibber.get_prices). Der Response-Pfad zeigt auf die Slot-Liste in der Antwort.",
+      "provider_tibber": {
+        "title": "Provider (Tibber)",
+        "description": "Direkten Tibber-Zugriff konfigurieren. EPS liest die reine Energiekomponente direkt von Tibber.",
         "data": {
-          "id": "Quellen-ID",
-          "priority": "Priorität (0 = höchste)",
-          "action": "Aktion (domain.service)",
-          "response_path": "Response-Pfad",
-          "source_entity_id": "Optionale Quell-Entität",
-          "request_payload_json": "Request-Payload (JSON)",
-          "inject_time_window": "Zeitfenster für heute und morgen einfügen",
-          "start_key": "Start-Key",
-          "end_key": "End-Key",
-          "time_format": "Datumsformat",
-          "time_key": "Zeit-Key im Slot-Objekt",
-          "price_key": "Preis-Key im Slot-Objekt"
+          "token": "API-Token",
+          "multiple_homes": "Account hat mehrere Homes"
+        }
+      },
+      "provider_tibber_home": {
+        "title": "Provider (Tibber Home)",
+        "description": "Wähle den Tibber-Home-Index, den EPS verwenden soll, wenn der Account mehr als ein Home enthält.",
+        "data": {
+          "home_index": "Home-Index"
+        }
+      },
+      "provider_smard": {
+        "title": "Provider (SMARD)",
+        "description": "Direkten SMARD-Zugriff für das ausgewählte Marktgebiet konfigurieren.",
+        "data": {
+          "market_area": "Marktgebiet"
+        }
+      },
+      "provider_energy_charts": {
+        "title": "Provider (Energy-Charts)",
+        "description": "Direkten Energy-Charts-Zugriff für die ausgewählte Bidding Zone konfigurieren. Stündliche Timelines werden bei Bedarf intern aus Viertelstundenwerten gebildet.",
+        "data": {
+          "market_area": "Bidding Zone"
+        }
+      },
+      "provider_entsoe": {
+        "title": "Provider (ENTSO-E)",
+        "description": "Direkten ENTSO-E-Zugriff für die ausgewählte Bidding Zone konfigurieren.",
+        "data": {
+          "market_area": "Bidding Zone",
+          "token": "Security-Token"
+        }
+      },
+      "timeline_energy_pricing": {
+        "title": "Strompreis-Formel",
+        "description": "Konfiguriere, wie EPS den rohen Marktpreis in den finalen Strompreis pro kWh umrechnet.",
+        "data": {
+          "energy_surcharge_percent": "Prozentualer Aufschlag (%)",
+          "energy_surcharge_absolute": "Absoluter Aufschlag (EUR/kWh)",
+          "energy_tax_percent": "Energiesteuer / MwSt (%)"
+        }
+      },
+      "timeline_consumption": {
+        "title": "Verbrauchstracking",
+        "description": "Wähle, ob diese Timeline die verknüpften Verbrauchs-, Kosten- und Durchschnittspreis-Sensoren anlegen soll.",
+        "data": {
+          "enable_consumption_tracking": "Verbrauchstracking aktivieren"
+        }
+      },
+      "timeline_consumption_details": {
+        "title": "Verbrauchsdetails",
+        "description": "Konfiguriere die Energie-Entität und die Fixkostenwerte für Kosten- und Durchschnittspreis-Berechnungen.",
+        "data": {
+          "consumption_energy_entity": "Verbrauchs-Energie-Entität",
+          "fixed_fee_monthly_amount": "Monatlicher Fixkosten-Betrag",
+          "fixed_fee_daily_amount": "Täglicher Fixkosten-Betrag",
+          "fixed_fee_tax_percent": "MwSt / Steuer auf Fixkosten (%)",
+          "fixed_fee_values_include_tax": "Fixkostenwerte enthalten bereits Steuer",
+          "current_month_fixed_fee_mode": "Monatsfixkosten-Modus für aktuellen Monat",
+          "avg_price_include_basic_fee": "Durchschnittspreis inkl. Grundgebühr"
+        }
+      },
+      "timeline_planner": {
+        "title": "Planer-Geräte",
+        "description": "Konfiguriere die Planer-Gerätenamen, die unterhalb dieser Timeline existieren sollen.",
+        "data": {
+          "planner_devices": "Planer-Geräte"
         }
       }
     },
@@ -97,20 +131,6 @@
   },
   "options": {
     "step": {
-      "timeline": {
-        "title": "Preis-Timeline-Optionen",
-        "data": {
-          "currency": "Währung",
-          "cache_retention_days": "Cache-Aufbewahrung (Tage)",
-          "round_decimals": "Anzahl Nachkommastellen für Preise",
-          "enable_current_price_sensor": "Sensor für aktuellen Preis aktivieren",
-          "consumption_energy_entity": "Verbrauchs-Energie-Entität",
-          "basic_fee_mode": "Grundgebühr-Modus",
-          "basic_fee_amount": "Grundgebühr-Betrag",
-          "avg_price_include_basic_fee": "Durchschnittspreis inkl. Grundgebühr",
-          "planner_devices": "Planer-Geräte"
-        }
-      },
       "profile_logger": {
         "title": "Verbrauchsprofil-Logger-Optionen",
         "data": {
@@ -120,6 +140,102 @@
           "auto_create_programs": "Unbekannte Programme automatisch anlegen",
           "allowed_programs": "Erlaubte Programmschlüssel",
           "blocked_programs": "Blockierte Programmschlüssel"
+        }
+      },
+      "provider_count": {
+        "title": "Provider-Kette konfigurieren",
+        "description": "Wähle, wie viele Provider für diese Timeline konfiguriert werden sollen. Der zuerst konfigurierte Provider wird zu Provider 1 und hat die höchste Priorität. Jeder weitere Provider dient in genau dieser Reihenfolge als nächster Fallback.",
+        "data": {
+          "provider_count": "Anzahl Provider"
+        }
+      },
+      "provider_type": {
+        "title": "Provider auswählen",
+        "description": "Wähle den Provider für die nächste Priorität in der Quellkette. Es werden nur Provider angezeigt, die zur gewählten Abrechnungsauflösung passen.",
+        "data": {
+          "provider_type": "Provider"
+        }
+      },
+      "provider_tibber": {
+        "title": "Provider (Tibber)",
+        "description": "Direkten Tibber-Zugriff konfigurieren. EPS liest die reine Energiekomponente direkt von Tibber.",
+        "data": {
+          "token": "API-Token",
+          "multiple_homes": "Account hat mehrere Homes"
+        }
+      },
+      "provider_tibber_home": {
+        "title": "Provider (Tibber Home)",
+        "description": "Wähle den Tibber-Home-Index, den EPS verwenden soll, wenn der Account mehr als ein Home enthält.",
+        "data": {
+          "home_index": "Home-Index"
+        }
+      },
+      "provider_smard": {
+        "title": "Provider (SMARD)",
+        "description": "Direkten SMARD-Zugriff für das ausgewählte Marktgebiet konfigurieren.",
+        "data": {
+          "market_area": "Marktgebiet"
+        }
+      },
+      "provider_energy_charts": {
+        "title": "Provider (Energy-Charts)",
+        "description": "Direkten Energy-Charts-Zugriff für die ausgewählte Bidding Zone konfigurieren. Stündliche Timelines werden bei Bedarf intern aus Viertelstundenwerten gebildet.",
+        "data": {
+          "market_area": "Bidding Zone"
+        }
+      },
+      "provider_entsoe": {
+        "title": "Provider (ENTSO-E)",
+        "description": "Direkten ENTSO-E-Zugriff für die ausgewählte Bidding Zone konfigurieren.",
+        "data": {
+          "market_area": "Bidding Zone",
+          "token": "Security-Token"
+        }
+      },
+      "timeline_energy_pricing": {
+        "title": "Strompreis-Formel",
+        "description": "Konfiguriere, wie EPS den rohen Marktpreis in den finalen Strompreis pro kWh umrechnet.",
+        "data": {
+          "energy_surcharge_percent": "Prozentualer Aufschlag (%)",
+          "energy_surcharge_absolute": "Absoluter Aufschlag (EUR/kWh)",
+          "energy_tax_percent": "Energiesteuer / MwSt (%)"
+        }
+      },
+      "timeline_consumption": {
+        "title": "Verbrauchstracking",
+        "description": "Wähle, ob diese Timeline die verknüpften Verbrauchs-, Kosten- und Durchschnittspreis-Sensoren anlegen soll.",
+        "data": {
+          "enable_consumption_tracking": "Verbrauchstracking aktivieren"
+        }
+      },
+      "timeline_consumption_details": {
+        "title": "Verbrauchsdetails",
+        "description": "Konfiguriere die Energie-Entität und die Fixkostenwerte für Kosten- und Durchschnittspreis-Berechnungen.",
+        "data": {
+          "consumption_energy_entity": "Verbrauchs-Energie-Entität",
+          "fixed_fee_monthly_amount": "Monatlicher Fixkosten-Betrag",
+          "fixed_fee_daily_amount": "Täglicher Fixkosten-Betrag",
+          "fixed_fee_tax_percent": "MwSt / Steuer auf Fixkosten (%)",
+          "fixed_fee_values_include_tax": "Fixkostenwerte enthalten bereits Steuer",
+          "current_month_fixed_fee_mode": "Monatsfixkosten-Modus für aktuellen Monat",
+          "avg_price_include_basic_fee": "Durchschnittspreis inkl. Grundgebühr"
+        }
+      },
+      "timeline_planner": {
+        "title": "Planer-Geräte",
+        "description": "Konfiguriere die Planer-Gerätenamen, die unterhalb dieser Timeline existieren sollen.",
+        "data": {
+          "planner_devices": "Planer-Geräte"
+        }
+      },
+      "timeline_core": {
+        "title": "Preis-Timeline erstellen",
+        "description": "Erstelle einen Preis-Timeline-Eintrag. Definiere zuerst die Timeline-Grunddaten und die Abrechnungsauflösung, zu der alle Providerdaten passen müssen.",
+        "data": {
+          "billing_slot_minutes": "Abrechnungsauflösung",
+          "cache_retention_days": "Cache-Aufbewahrung (Tage)",
+          "round_decimals": "Anzahl Nachkommastellen für Preise"
         }
       }
     }
@@ -182,6 +298,9 @@
       },
       "cost_last_month_incl_basic_fee": {
         "name": "Kosten letzter Monat inkl. Grundgebühr"
+      },
+      "current_market_price": {
+        "name": "Aktueller Marktpreis"
       }
     }
   },
@@ -337,76 +456,6 @@
         "items": {
           "name": "Einträge",
           "description": "Mapping von program_key zu duration_minutes. Nur verwendet für mode=add_estimated_runtimes."
-        }
-      }
-    },
-    "manage_sources": {
-      "name": "Quellen verwalten",
-      "description": "Pull-Quellen in der Timeline-Quellenkette hinzufügen, auflisten oder löschen.",
-      "fields": {
-        "mode": {
-          "name": "Modus",
-          "description": "Verwaltungsmodus. Verwende add, list oder delete."
-        },
-        "id": {
-          "name": "Quellen-ID",
-          "description": "Eindeutige Quellen-ID innerhalb der gewählten Timeline. Nur verwendet für mode=add, list, delete."
-        },
-        "priority": {
-          "name": "Priorität",
-          "description": "Quellenpriorität (kleinere Zahl gewinnt bei Konflikten). Nur verwendet für mode=add."
-        },
-        "source_type": {
-          "name": "Quellentyp",
-          "description": "Pull-Quellentyp. Verwende entity_attribute für Attribute oder entity_action für Service-Antworten. Nur verwendet für mode=add."
-        },
-        "source_entity_id": {
-          "name": "Quellen-Entity",
-          "description": "Entity der Quelle (für entity_attribute erforderlich, für entity_action optional). Nur verwendet für mode=add."
-        },
-        "attribute": {
-          "name": "Attribut",
-          "description": "Attributname mit den Slot-Zeilen. Nur verwendet für mode=add."
-        },
-        "action": {
-          "name": "Aktion",
-          "description": "Aufzurufende Service-Aktion im Format domain.service. Nur verwendet für mode=add."
-        },
-        "response_path": {
-          "name": "Antwortpfad",
-          "description": "Gepunkteter Pfad zur Slot-Liste in der Service-Antwort. Nur verwendet für mode=add."
-        },
-        "request_payload": {
-          "name": "Request-Payload",
-          "description": "Zusätzliche Payload für den Action-Aufruf. Nur verwendet für mode=add."
-        },
-        "time_key": {
-          "name": "Zeit-Key",
-          "description": "Feldname für den Slot-Startzeitpunkt. Nur verwendet für mode=add."
-        },
-        "price_key": {
-          "name": "Preis-Key",
-          "description": "Feldname für den Preiswert. Nur verwendet für mode=add."
-        },
-        "enabled": {
-          "name": "Aktiviert",
-          "description": "Ob die Quelle aktiviert ist. Nur verwendet für mode=add."
-        },
-        "inject_time_window": {
-          "name": "Zeitfenster injizieren",
-          "description": "Start/Ende für heute und morgen automatisch in die Action-Payload schreiben. Nur verwendet für mode=add."
-        },
-        "start_key": {
-          "name": "Start-Key",
-          "description": "Payload-Key für den injizierten Startzeitpunkt. Nur verwendet für mode=add."
-        },
-        "end_key": {
-          "name": "End-Key",
-          "description": "Payload-Key für den injizierten Endzeitpunkt. Nur verwendet für mode=add."
-        },
-        "time_format": {
-          "name": "Datumsformat",
-          "description": "Datumsformat für injizierte Start-/Endwerte. Nur verwendet für mode=add."
         }
       }
     },
