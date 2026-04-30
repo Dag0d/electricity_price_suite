@@ -217,11 +217,12 @@ def build_consumption_metrics(
                 for window in (power_active_block.get("window_stats") or {}).values():
                     window_seconds = float(window.get("duration_seconds", 0.0) or 0.0)
                     window_energy = float(window.get("energy_kwh", 0.0) or 0.0)
-                    if window_seconds <= 0:
+                    if window_seconds < 300.0:
                         continue
                     min_candidates.append((window_energy * 1000.0) / (window_seconds / 3600.0))
-                min_power = min(min_candidates) if min_candidates else avg_power
-                bucket_segments.append((overlap_start, overlap_end, avg_power, max_power, min_power))
+                if min_candidates:
+                    min_power = min(min_candidates)
+                    bucket_segments.append((overlap_start, overlap_end, avg_power, max_power, min_power))
 
     power_avg_24h: float | None = None
     power_min_24h: float | None = None

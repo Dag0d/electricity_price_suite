@@ -16,8 +16,6 @@ from .const import (
     CONF_ALLOWED_PROGRAMS,
     CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
     CONF_AUTO_CREATE_PROGRAMS,
-    CONF_BASIC_FEE_AMOUNT,
-    CONF_BASIC_FEE_MODE,
     CONF_BILLING_SLOT_MINUTES,
     CONF_BLOCKED_PROGRAMS,
     CONF_CACHE_RETENTION_DAYS,
@@ -52,8 +50,6 @@ from .const import (
     DEFAULT_FIXED_FEE_MONTHLY_AMOUNT,
     DEFAULT_FIXED_FEE_TAX_PERCENT,
     DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX,
-    DEFAULT_BASIC_FEE_AMOUNT,
-    DEFAULT_BASIC_FEE_MODE,
     DEFAULT_BILLING_SLOT_MINUTES,
     DEFAULT_CACHE_RETENTION_DAYS,
     DEFAULT_MAX_POWER_KW,
@@ -197,35 +193,6 @@ def parse_name_list(values: list[str] | str | None) -> list[str]:
         seen.add(slug)
         names.append(name)
     return names
-
-
-def _legacy_fixed_fee_defaults(data: dict[str, Any]) -> dict[str, Any]:
-    monthly_amount = data.get(CONF_FIXED_FEE_MONTHLY_AMOUNT)
-    daily_amount = data.get(CONF_FIXED_FEE_DAILY_AMOUNT)
-    tax_percent = data.get(CONF_FIXED_FEE_TAX_PERCENT)
-    values_include_tax = data.get(CONF_FIXED_FEE_VALUES_INCLUDE_TAX)
-    month_mode = data.get(CONF_CURRENT_MONTH_FIXED_FEE_MODE)
-
-    if monthly_amount is None and daily_amount is None:
-        legacy_mode = str(data.get(CONF_BASIC_FEE_MODE, DEFAULT_BASIC_FEE_MODE))
-        legacy_amount = float(data.get(CONF_BASIC_FEE_AMOUNT, DEFAULT_BASIC_FEE_AMOUNT) or 0.0)
-        if legacy_mode == "monthly":
-            monthly_amount = legacy_amount
-        elif legacy_mode == "daily":
-            daily_amount = legacy_amount
-
-    return {
-        CONF_FIXED_FEE_MONTHLY_AMOUNT: float(monthly_amount if monthly_amount is not None else DEFAULT_FIXED_FEE_MONTHLY_AMOUNT),
-        CONF_FIXED_FEE_DAILY_AMOUNT: float(daily_amount if daily_amount is not None else DEFAULT_FIXED_FEE_DAILY_AMOUNT),
-        CONF_FIXED_FEE_TAX_PERCENT: float(tax_percent if tax_percent is not None else DEFAULT_FIXED_FEE_TAX_PERCENT),
-        CONF_FIXED_FEE_VALUES_INCLUDE_TAX: _as_bool(
-            DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX if values_include_tax is None else values_include_tax
-        ),
-        CONF_CURRENT_MONTH_FIXED_FEE_MODE: str(
-            month_mode if month_mode is not None else DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE
-        ),
-    }
-
 
 class _TimelineProviderFlowMixin:
     def _init_provider_state(self) -> None:
@@ -653,17 +620,26 @@ class ElectricityPriceSuiteConfigFlow(_TimelineProviderFlowMixin, config_entries
         }
 
     def _consumption_defaults(self) -> dict[str, Any]:
-        fixed_fee_defaults = _legacy_fixed_fee_defaults(self._draft)
         return {
             CONF_ENABLE_CONSUMPTION_TRACKING: _as_bool(
                 self._draft.get(CONF_ENABLE_CONSUMPTION_TRACKING, DEFAULT_ENABLE_CONSUMPTION_TRACKING)
             ),
             CONF_CONSUMPTION_ENERGY_ENTITY: self._draft.get(CONF_CONSUMPTION_ENERGY_ENTITY, ""),
-            CONF_FIXED_FEE_MONTHLY_AMOUNT: fixed_fee_defaults[CONF_FIXED_FEE_MONTHLY_AMOUNT],
-            CONF_FIXED_FEE_DAILY_AMOUNT: fixed_fee_defaults[CONF_FIXED_FEE_DAILY_AMOUNT],
-            CONF_FIXED_FEE_TAX_PERCENT: fixed_fee_defaults[CONF_FIXED_FEE_TAX_PERCENT],
-            CONF_FIXED_FEE_VALUES_INCLUDE_TAX: fixed_fee_defaults[CONF_FIXED_FEE_VALUES_INCLUDE_TAX],
-            CONF_CURRENT_MONTH_FIXED_FEE_MODE: fixed_fee_defaults[CONF_CURRENT_MONTH_FIXED_FEE_MODE],
+            CONF_FIXED_FEE_MONTHLY_AMOUNT: float(
+                self._draft.get(CONF_FIXED_FEE_MONTHLY_AMOUNT, DEFAULT_FIXED_FEE_MONTHLY_AMOUNT)
+            ),
+            CONF_FIXED_FEE_DAILY_AMOUNT: float(
+                self._draft.get(CONF_FIXED_FEE_DAILY_AMOUNT, DEFAULT_FIXED_FEE_DAILY_AMOUNT)
+            ),
+            CONF_FIXED_FEE_TAX_PERCENT: float(
+                self._draft.get(CONF_FIXED_FEE_TAX_PERCENT, DEFAULT_FIXED_FEE_TAX_PERCENT)
+            ),
+            CONF_FIXED_FEE_VALUES_INCLUDE_TAX: _as_bool(
+                self._draft.get(CONF_FIXED_FEE_VALUES_INCLUDE_TAX, DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX)
+            ),
+            CONF_CURRENT_MONTH_FIXED_FEE_MODE: str(
+                self._draft.get(CONF_CURRENT_MONTH_FIXED_FEE_MODE, DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE)
+            ),
             CONF_AVG_PRICE_INCLUDE_BASIC_FEE: _as_bool(
                 self._draft.get(CONF_AVG_PRICE_INCLUDE_BASIC_FEE, DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE)
             ),
@@ -824,7 +800,6 @@ class ElectricityPriceSuiteOptionsFlow(_TimelineProviderFlowMixin, config_entrie
 
     def _consumption_defaults(self) -> dict[str, Any]:
         current = {**self._config_entry.data, **self._config_entry.options, **self._draft}
-        fixed_fee_defaults = _legacy_fixed_fee_defaults(current)
         enabled_default = current.get(
             CONF_ENABLE_CONSUMPTION_TRACKING,
             bool(current.get(CONF_CONSUMPTION_ENERGY_ENTITY)) or DEFAULT_ENABLE_CONSUMPTION_TRACKING,
@@ -832,11 +807,17 @@ class ElectricityPriceSuiteOptionsFlow(_TimelineProviderFlowMixin, config_entrie
         return {
             CONF_ENABLE_CONSUMPTION_TRACKING: enabled_default,
             CONF_CONSUMPTION_ENERGY_ENTITY: current.get(CONF_CONSUMPTION_ENERGY_ENTITY),
-            CONF_FIXED_FEE_MONTHLY_AMOUNT: fixed_fee_defaults[CONF_FIXED_FEE_MONTHLY_AMOUNT],
-            CONF_FIXED_FEE_DAILY_AMOUNT: fixed_fee_defaults[CONF_FIXED_FEE_DAILY_AMOUNT],
-            CONF_FIXED_FEE_TAX_PERCENT: fixed_fee_defaults[CONF_FIXED_FEE_TAX_PERCENT],
-            CONF_FIXED_FEE_VALUES_INCLUDE_TAX: fixed_fee_defaults[CONF_FIXED_FEE_VALUES_INCLUDE_TAX],
-            CONF_CURRENT_MONTH_FIXED_FEE_MODE: fixed_fee_defaults[CONF_CURRENT_MONTH_FIXED_FEE_MODE],
+            CONF_FIXED_FEE_MONTHLY_AMOUNT: current.get(CONF_FIXED_FEE_MONTHLY_AMOUNT, DEFAULT_FIXED_FEE_MONTHLY_AMOUNT),
+            CONF_FIXED_FEE_DAILY_AMOUNT: current.get(CONF_FIXED_FEE_DAILY_AMOUNT, DEFAULT_FIXED_FEE_DAILY_AMOUNT),
+            CONF_FIXED_FEE_TAX_PERCENT: current.get(CONF_FIXED_FEE_TAX_PERCENT, DEFAULT_FIXED_FEE_TAX_PERCENT),
+            CONF_FIXED_FEE_VALUES_INCLUDE_TAX: current.get(
+                CONF_FIXED_FEE_VALUES_INCLUDE_TAX,
+                DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX,
+            ),
+            CONF_CURRENT_MONTH_FIXED_FEE_MODE: current.get(
+                CONF_CURRENT_MONTH_FIXED_FEE_MODE,
+                DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE,
+            ),
             CONF_AVG_PRICE_INCLUDE_BASIC_FEE: current.get(
                 CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
                 DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE,

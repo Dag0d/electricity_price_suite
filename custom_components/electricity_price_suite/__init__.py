@@ -24,9 +24,9 @@ from .const import (
     ENTRY_TYPE_PROFILE_LOGGER,
     ENTRY_TYPE_TIMELINE,
     PLATFORMS,
+    SERVICE_CLEANUP_TIMELINE_STORAGE,
     SERVICE_INJECT_SLOTS,
     SERVICE_POLL_PROVIDERS,
-    SERVICE_MIGRATE_TIMELINE_STORAGE,
     SERVICE_MANAGE_PROFILE,
     SERVICE_MANAGE_PLAN,
     SERVICE_MANAGE_PROFILE_RUN,
@@ -46,7 +46,7 @@ POLL_PROVIDERS_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
     vol.Optional("source_ids"): [cv.string],
 })
-MIGRATE_TIMELINE_STORAGE_SCHEMA = vol.Schema({
+CLEANUP_TIMELINE_STORAGE_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
     vol.Optional("planner_name"): cv.string,
     vol.Optional("preserve_plans", default=True): cv.boolean,
@@ -171,9 +171,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         _write_timeline_entities(runtime)
         return response
 
-    async def handle_migrate_timeline_storage(call: ServiceCall) -> dict[str, Any]:
+    async def handle_cleanup_timeline_storage(call: ServiceCall) -> dict[str, Any]:
         runtime = await _resolve_timeline(call)
-        response = await runtime.async_migrate_timeline_storage(
+        response = await runtime.async_cleanup_timeline_storage(
             planner_name=call.data.get("planner_name"),
             preserve_plans=bool(call.data["preserve_plans"]),
             clear_sources=bool(call.data["clear_sources"]),
@@ -292,7 +292,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     service_defs = [
         (SERVICE_REFRESH_TIMELINE, handle_refresh, REFRESH_SCHEMA),
         (SERVICE_POLL_PROVIDERS, handle_poll_providers, POLL_PROVIDERS_SCHEMA),
-        (SERVICE_MIGRATE_TIMELINE_STORAGE, handle_migrate_timeline_storage, MIGRATE_TIMELINE_STORAGE_SCHEMA),
+        (SERVICE_CLEANUP_TIMELINE_STORAGE, handle_cleanup_timeline_storage, CLEANUP_TIMELINE_STORAGE_SCHEMA),
         (SERVICE_INJECT_SLOTS, handle_inject, INJECT_SCHEMA),
         (SERVICE_OPTIMIZE_DEVICE, handle_optimize, OPTIMIZE_SCHEMA),
         (SERVICE_MANAGE_PLAN, handle_manage_plan, MANAGE_PLAN_SCHEMA),

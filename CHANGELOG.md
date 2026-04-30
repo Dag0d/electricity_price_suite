@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.5.1 - 2026-05-01
+
+### Changed
+- Renamed the storage maintenance service from `migrate_timeline_storage` to `cleanup_timeline_storage` to match its actual purpose as a general runtime cleanup tool.
+- Removed remaining fixed-fee legacy compatibility code and old startup cleanup paths that were only needed for earlier storage/provider formats.
+
+### Fixed
+- `min_power_24h_w` no longer uses incomplete 5-minute windows from the active 15-minute block, so the rolling minimum no longer rises spuriously just because a partial live window is still filling.
+
 ## 2026.4.12 - 2026-04-30
 
 ### Changed

@@ -32,16 +32,16 @@ poll_providers:
       selector:
         object: {}
 
-migrate_timeline_storage:
-  name: Migrate timeline storage
-  description: One-time cleanup helper for upgrading old timeline storage to the new direct-provider model while optionally preserving plans.
+cleanup_timeline_storage:
+  name: Cleanup timeline storage
+  description: One-time cleanup helper for resetting timeline runtime data while optionally preserving plans and the last consumption snapshot.
   target:
     entity:
       domain: sensor
   fields:
     planner_name:
       required: false
-      description: Optional fallback planner name used when preserved legacy plans are missing planner metadata.
+      description: Optional fallback planner name used when preserved plans are missing planner metadata.
       example: "Geräteplanung"
       selector:
         text: {}

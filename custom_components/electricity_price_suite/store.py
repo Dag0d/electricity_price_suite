@@ -57,19 +57,6 @@ class TimelineStore:
     async def async_save(self) -> None:
         await self._store.async_save(self._data)
 
-    def normalize_power_storage(self) -> int:
-        consumption = self._data.setdefault("consumption", {})
-        changed = 0
-        if "power_samples" in consumption:
-            consumption.pop("power_samples", None)
-            changed += 1
-        if "power_day" in consumption:
-            consumption.pop("power_day", None)
-            changed += 1
-        consumption.setdefault("power_buckets", {})
-        consumption.setdefault("power_active_block", None)
-        return changed
-
     def set_source_health(self, source_id: str, healthy: bool, reason: str | None) -> None:
         self._data.setdefault("source_health", {})[source_id] = {
             "healthy": healthy,

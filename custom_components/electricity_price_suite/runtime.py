@@ -21,8 +21,6 @@ from .const import (
     ATTR_PRICE_PER_KWH,
     ATTR_START_TIME,
     CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
-    CONF_BASIC_FEE_AMOUNT,
-    CONF_BASIC_FEE_MODE,
     CONF_BILLING_SLOT_MINUTES,
     CONF_CACHE_RETENTION_DAYS,
     CONF_CONSUMPTION_ENERGY_ENTITY,
@@ -39,8 +37,6 @@ from .const import (
     CONF_SOURCE_CHAIN,
     CONF_ROUND_DECIMALS,
     DEFAULT_AVG_PRICE_INCLUDE_BASIC_FEE,
-    DEFAULT_BASIC_FEE_AMOUNT,
-    DEFAULT_BASIC_FEE_MODE,
     DEFAULT_BILLING_SLOT_MINUTES,
     DEFAULT_CONSUMPTION_RETENTION_DAYS,
     DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE,
@@ -84,45 +80,12 @@ from .timeline_stats import (
 from .time_utils import format_iso, parse_iso_aware
 
 _LOGGER = logging.getLogger(__name__)
-_DIRECT_PROVIDER_TYPES = {"tibber", "smard", "energy_charts", "entsoe"}
-_DEFAULT_SLOT_MAPPING = {"time_key": "start_time", "price_key": "price_per_kwh"}
-
-
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
         return bool(value)
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _legacy_fixed_fee_defaults(data: dict[str, Any]) -> dict[str, Any]:
-    monthly_amount = data.get(CONF_FIXED_FEE_MONTHLY_AMOUNT)
-    daily_amount = data.get(CONF_FIXED_FEE_DAILY_AMOUNT)
-    tax_percent = data.get(CONF_FIXED_FEE_TAX_PERCENT)
-    values_include_tax = data.get(CONF_FIXED_FEE_VALUES_INCLUDE_TAX)
-    month_mode = data.get(CONF_CURRENT_MONTH_FIXED_FEE_MODE)
-
-    if monthly_amount is None and daily_amount is None:
-        legacy_mode = str(data.get(CONF_BASIC_FEE_MODE, DEFAULT_BASIC_FEE_MODE))
-        legacy_amount = float(data.get(CONF_BASIC_FEE_AMOUNT, DEFAULT_BASIC_FEE_AMOUNT) or 0.0)
-        if legacy_mode == "monthly":
-            monthly_amount = legacy_amount
-        elif legacy_mode == "daily":
-            daily_amount = legacy_amount
-
-    return {
-        CONF_FIXED_FEE_MONTHLY_AMOUNT: float(monthly_amount if monthly_amount is not None else DEFAULT_FIXED_FEE_MONTHLY_AMOUNT),
-        CONF_FIXED_FEE_DAILY_AMOUNT: float(daily_amount if daily_amount is not None else DEFAULT_FIXED_FEE_DAILY_AMOUNT),
-        CONF_FIXED_FEE_TAX_PERCENT: float(tax_percent if tax_percent is not None else DEFAULT_FIXED_FEE_TAX_PERCENT),
-        CONF_FIXED_FEE_VALUES_INCLUDE_TAX: _as_bool(
-            DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX if values_include_tax is None else values_include_tax
-        ),
-        CONF_CURRENT_MONTH_FIXED_FEE_MODE: str(
-            month_mode if month_mode is not None else DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE
-        ),
-    }
-
 
 class TimelineRuntime:
     """One runtime timeline bound to one config entry."""
@@ -182,12 +145,36 @@ class TimelineRuntime:
                 entry.data.get(CONF_ENERGY_TAX_PERCENT, DEFAULT_ENERGY_TAX_PERCENT),
             )
         )
-        fixed_fee_values = _legacy_fixed_fee_defaults({**entry.data, **entry.options})
-        self.fixed_fee_monthly_amount = float(fixed_fee_values[CONF_FIXED_FEE_MONTHLY_AMOUNT])
-        self.fixed_fee_daily_amount = float(fixed_fee_values[CONF_FIXED_FEE_DAILY_AMOUNT])
-        self.fixed_fee_tax_percent = float(fixed_fee_values[CONF_FIXED_FEE_TAX_PERCENT])
-        self.fixed_fee_values_include_tax = bool(fixed_fee_values[CONF_FIXED_FEE_VALUES_INCLUDE_TAX])
-        self.current_month_fixed_fee_mode = str(fixed_fee_values[CONF_CURRENT_MONTH_FIXED_FEE_MODE])
+        self.fixed_fee_monthly_amount = float(
+            entry.options.get(
+                CONF_FIXED_FEE_MONTHLY_AMOUNT,
+                entry.data.get(CONF_FIXED_FEE_MONTHLY_AMOUNT, DEFAULT_FIXED_FEE_MONTHLY_AMOUNT),
+            )
+        )
+        self.fixed_fee_daily_amount = float(
+            entry.options.get(
+                CONF_FIXED_FEE_DAILY_AMOUNT,
+                entry.data.get(CONF_FIXED_FEE_DAILY_AMOUNT, DEFAULT_FIXED_FEE_DAILY_AMOUNT),
+            )
+        )
+        self.fixed_fee_tax_percent = float(
+            entry.options.get(
+                CONF_FIXED_FEE_TAX_PERCENT,
+                entry.data.get(CONF_FIXED_FEE_TAX_PERCENT, DEFAULT_FIXED_FEE_TAX_PERCENT),
+            )
+        )
+        self.fixed_fee_values_include_tax = bool(
+            entry.options.get(
+                CONF_FIXED_FEE_VALUES_INCLUDE_TAX,
+                entry.data.get(CONF_FIXED_FEE_VALUES_INCLUDE_TAX, DEFAULT_FIXED_FEE_VALUES_INCLUDE_TAX),
+            )
+        )
+        self.current_month_fixed_fee_mode = str(
+            entry.options.get(
+                CONF_CURRENT_MONTH_FIXED_FEE_MODE,
+                entry.data.get(CONF_CURRENT_MONTH_FIXED_FEE_MODE, DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE),
+            )
+        )
         self.avg_price_include_basic_fee = bool(
             entry.options.get(
                 CONF_AVG_PRICE_INCLUDE_BASIC_FEE,
@@ -296,20 +283,12 @@ class TimelineRuntime:
     async def async_initialize(self) -> None:
         await self.store.async_load()
         normalized_slot_timezones = self.store.normalize_slot_timezones(self.timezone)
-        normalized_power_storage = self.store.normalize_power_storage()
-        sources_changed = False
         pruned_unpriced_consumption = self.store.purge_unpriced_consumption_slots()
-        for source in self.store.get_sources():
-            if source.get("type") in _DIRECT_PROVIDER_TYPES and source.get("slot_mapping") == _DEFAULT_SLOT_MAPPING:
-                normalized = dict(source)
-                normalized.pop("slot_mapping", None)
-                self.store.upsert_source(normalized)
-                sources_changed = True
         if not self.store.get_sources():
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
-            sources_changed = True
-        if sources_changed or pruned_unpriced_consumption or normalized_slot_timezones or normalized_power_storage:
+            await self.store.async_save()
+        elif pruned_unpriced_consumption or normalized_slot_timezones:
             await self.store.async_save()
         await self._rebuild_from_store()
         if self.has_consumption_tracking:
@@ -600,7 +579,7 @@ class TimelineRuntime:
             "source_count": len(self.store.get_sources()),
         }
 
-    async def async_migrate_timeline_storage(
+    async def async_cleanup_timeline_storage(
         self,
         *,
         planner_name: str | None,
@@ -1481,12 +1460,11 @@ class TimelineRuntime:
         for window in window_stats.values():
             window_seconds = float(window.get("duration_seconds", 0.0) or 0.0)
             window_energy = float(window.get("energy_kwh", 0.0) or 0.0)
-            if window_seconds <= 0:
+            if window_seconds < 300.0:
                 continue
             min_values.append((window_energy * 1000.0) / (window_seconds / 3600.0))
         if not min_values:
-            self.store.set_consumption_power_active_block(block=None)
-            return
+            min_values = [avg_power_w]
 
         self.store.add_consumption_power_bucket(
             start_time=str(block["start_time"]),
