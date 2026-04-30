@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.7 - 2026-04-30
+
+### Changed
+- Increased the automatic polling cadence for `tomorrow_not_from_provider_1` timelines to every 15 minutes from `12:01` onward, matching the more aggressive `today_only` behavior.
+- Automatic timeline refreshes now stop polling already-overridden fallback providers once a better provider has already delivered a complete day, so follow-up refreshes focus only on providers that can still improve the stored data.
+
+### Added
+- Added a new `poll_providers` service that can manually poll all configured providers or a selected subset of `source_id`s on demand.
+
 ## 2026.4.6 - 2026-04-30
 
 ### Fixed

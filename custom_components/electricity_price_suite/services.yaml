@@ -18,6 +18,20 @@ refresh_timeline:
       selector:
         boolean: {}
 
+poll_providers:
+  name: Poll providers
+  description: Manually poll configured provider APIs and merge returned slots by priority. If source_ids is omitted, all configured providers are queried.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    source_ids:
+      required: false
+      description: Optional list of configured provider source ids to poll, for example source_1_tibber or source_2_entsoe.
+      example: "[\"source_1_tibber\", \"source_2_entsoe\"]"
+      selector:
+        object: {}
+
 migrate_timeline_storage:
   name: Migrate timeline storage
   description: One-time cleanup helper for upgrading old timeline storage to the new direct-provider model while optionally preserving plans.

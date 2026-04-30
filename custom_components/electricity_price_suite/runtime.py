@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -71,6 +71,7 @@ from .store import TimelineStore
 from .timeline_stats import (
     build_timeline_stats,
     current_price_coverage_end,
+    day_is_complete,
     detect_billing_slot_minutes,
     filter_slots_for_missing_days,
     filter_today_tomorrow_slots,
@@ -390,6 +391,7 @@ class TimelineRuntime:
         override_sources: list[Any] | None,
         only_today_tomorrow: bool = True,
         overwrite: bool = False,
+        force_fetch: bool = False,
     ) -> dict[str, Any]:
         attempt_log: list[dict[str, Any]] = []
         merged_debug: dict[str, int] = {"inserted": 0, "replaced": 0, "ignored": 0}
@@ -399,6 +401,7 @@ class TimelineRuntime:
         cleared_rows = 0
 
         if not active_sources:
+            reason = "unknown_source_ids" if override_sources else "no_sources_configured"
             self.latest_stats = self._compute_timeline_stats()
             self._schedule_next_poll_update()
             return {
@@ -415,7 +418,8 @@ class TimelineRuntime:
                 "merge_debug": merged_debug,
                 "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
                 "cleared_rows": cleared_rows,
-                "reason": "no_sources_configured",
+                "reason": reason,
+                "requested_source_ids": list(override_sources or []),
                 "hint": "Configure providers via the timeline config flow.",
             }
 
@@ -430,8 +434,10 @@ class TimelineRuntime:
 
         for source in active_sources:
             # If primary already covers both days, no fallback query is needed.
-            if need_today is False and need_tomorrow is False:
+            if force_fetch is False and need_today is False and need_tomorrow is False:
                 break
+            if force_fetch is False and not self._should_poll_source(source, need_today, need_tomorrow):
+                continue
 
             slots, attempt = await fetch_from_source(self.hass, source)
             attempt_log.append(attempt.to_dict())
@@ -507,6 +513,42 @@ class TimelineRuntime:
             "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
             "cleared_rows": cleared_rows,
         }
+
+    def _best_complete_priority_for_day(self, target_day: date) -> int | None:
+        rows = self.store.get_slots()
+        if not rows:
+            return None
+        tz = ZoneInfo(self.timezone)
+        priorities = sorted(
+            {
+                int(row.get("source_priority", 9999))
+                for row in rows
+                if (dt := parse_iso_local(row["start_time"], tz)) is not None and dt.date() == target_day
+            }
+        )
+        for priority in priorities:
+            day_rows = [row for row in rows if int(row.get("source_priority", 9999)) == priority]
+            if day_is_complete(day_rows, target_day, tz, self.billing_slot_minutes):
+                return priority
+        return None
+
+    def _should_poll_source(self, source: SourceConfig, need_today: bool, need_tomorrow: bool) -> bool:
+        priority = int(source.get("priority", 9999))
+        tz = ZoneInfo(self.timezone)
+        today = datetime.now(tz).date()
+        tomorrow = today + timedelta(days=1)
+
+        if need_today:
+            best_today = self._best_complete_priority_for_day(today)
+            if best_today is None or priority < best_today:
+                return True
+
+        if need_tomorrow:
+            best_tomorrow = self._best_complete_priority_for_day(tomorrow)
+            if best_tomorrow is None or priority < best_tomorrow:
+                return True
+
+        return False
 
     async def async_add_source(self, source: dict[str, Any]) -> dict[str, Any]:
         next_priority = len(self.store.get_sources())
@@ -1489,7 +1531,13 @@ class TimelineRuntime:
             return next_minute_mark((1, 16, 31, 46), now)
 
         if status == "tomorrow_not_from_provider_1":
-            return next_minute_mark((1,), now)
+            start_window = now.replace(hour=12, minute=1, second=0, microsecond=0)
+            if now < start_window:
+                return start_window
+            end_window = now.replace(hour=23, minute=31, second=0, microsecond=0)
+            if now > end_window:
+                return (now + timedelta(days=1)).replace(hour=12, minute=1, second=0, microsecond=0)
+            return next_minute_mark((1, 16, 31, 46), now)
 
         return None
 

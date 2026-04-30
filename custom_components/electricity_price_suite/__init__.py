@@ -25,6 +25,7 @@ from .const import (
     ENTRY_TYPE_TIMELINE,
     PLATFORMS,
     SERVICE_INJECT_SLOTS,
+    SERVICE_POLL_PROVIDERS,
     SERVICE_MIGRATE_TIMELINE_STORAGE,
     SERVICE_MANAGE_PROFILE,
     SERVICE_MANAGE_PLAN,
@@ -41,6 +42,10 @@ _LOGGER = logging.getLogger(__name__)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 REFRESH_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("sources"): [dict], vol.Optional("overwrite", default=False): cv.boolean})
+POLL_PROVIDERS_SCHEMA = vol.Schema({
+    **cv.TARGET_SERVICE_FIELDS,
+    vol.Optional("source_ids"): [cv.string],
+})
 MIGRATE_TIMELINE_STORAGE_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
     vol.Optional("planner_name"): cv.string,
@@ -140,6 +145,16 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     async def handle_refresh(call: ServiceCall) -> dict[str, Any]:
         runtime = await _resolve_timeline(call)
         response = await runtime.async_refresh_timeline(override_sources=call.data.get("sources"), overwrite=call.data["overwrite"])
+        _write_timeline_entities(runtime)
+        return response
+
+    async def handle_poll_providers(call: ServiceCall) -> dict[str, Any]:
+        runtime = await _resolve_timeline(call)
+        response = await runtime.async_refresh_timeline(
+            override_sources=call.data.get("source_ids"),
+            overwrite=False,
+            force_fetch=True,
+        )
         _write_timeline_entities(runtime)
         return response
 
@@ -274,6 +289,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     service_defs = [
         (SERVICE_REFRESH_TIMELINE, handle_refresh, REFRESH_SCHEMA),
+        (SERVICE_POLL_PROVIDERS, handle_poll_providers, POLL_PROVIDERS_SCHEMA),
         (SERVICE_MIGRATE_TIMELINE_STORAGE, handle_migrate_timeline_storage, MIGRATE_TIMELINE_STORAGE_SCHEMA),
         (SERVICE_INJECT_SLOTS, handle_inject, INJECT_SCHEMA),
         (SERVICE_OPTIMIZE_DEVICE, handle_optimize, OPTIMIZE_SCHEMA),
