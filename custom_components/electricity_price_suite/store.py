@@ -20,7 +20,7 @@ from .models import (
     SourceConfig,
     utc_now_iso,
 )
-from .time_utils import parse_iso_aware
+from .time_utils import format_iso, parse_iso_aware
 
 
 class TimelineStore:
@@ -90,6 +90,46 @@ class TimelineStore:
     def upsert_slots(self, slots: list[SlotRecord]) -> dict[str, int]:
         by_start: dict[str, dict] = self._data.setdefault("slots", {})
         return merge_slot_dicts(by_start, slots)
+
+    def normalize_slot_timezones(self, timezone_name: str) -> int:
+        """Normalize persisted slot keys into the HA timezone and collapse duplicates."""
+
+        tz = ZoneInfo(timezone_name)
+        by_start: dict[str, SlotRow] = self._data.setdefault("slots", {})
+        if not by_start:
+            return 0
+
+        normalized: dict[str, SlotRow] = {}
+        changed = 0
+        for key, row in list(by_start.items()):
+            parsed = parse_iso_aware(row.get("start_time") or key)
+            if parsed is None:
+                by_start.pop(key, None)
+                changed += 1
+                continue
+
+            local_key = format_iso(parsed.astimezone(tz))
+            slot = SlotRecord(
+                start_time=local_key,
+                market_price_per_kwh=float(row["market_price_per_kwh"]),
+                price_per_kwh=float(row["price_per_kwh"]),
+                provider_final_price_per_kwh=(
+                    float(row["provider_final_price_per_kwh"])
+                    if row.get("provider_final_price_per_kwh") is not None
+                    else None
+                ),
+                source_id=str(row["source_id"]),
+                source_priority=int(row["source_priority"]),
+                is_primary_source=bool(row["is_primary_source"]),
+                observed_at=str(row["observed_at"]),
+            )
+            merge_slot_dicts(normalized, [slot])
+            if local_key != key:
+                changed += 1
+
+        if changed:
+            self._data["slots"] = normalized
+        return changed
 
     def purge_old_slots(self, timezone_name: str) -> int:
         tz = ZoneInfo(timezone_name)

@@ -81,7 +81,7 @@ from .timeline_stats import (
     parse_iso_local,
     pending_primary,
 )
-from .time_utils import format_iso
+from .time_utils import format_iso, parse_iso_aware
 
 _LOGGER = logging.getLogger(__name__)
 _DIRECT_PROVIDER_TYPES = {"tibber", "smard", "energy_charts", "entsoe"}
@@ -234,8 +234,11 @@ class TimelineRuntime:
         return gross
 
     def _finalize_slot_records(self, slots: list[SlotRecord]) -> list[SlotRecord]:
+        tz = ZoneInfo(self.timezone)
         finalized: list[SlotRecord] = []
         for slot in slots:
+            parsed_start = parse_iso_aware(slot.start_time)
+            local_start = format_iso(parsed_start.astimezone(tz)) if parsed_start is not None else slot.start_time
             market_price = float(slot.market_price_per_kwh)
             final_price = (
                 float(slot.provider_final_price_per_kwh)
@@ -244,7 +247,7 @@ class TimelineRuntime:
             )
             finalized.append(
                 SlotRecord(
-                    start_time=slot.start_time,
+                    start_time=local_start,
                     market_price_per_kwh=market_price,
                     price_per_kwh=final_price,
                     provider_final_price_per_kwh=slot.provider_final_price_per_kwh,
@@ -292,6 +295,7 @@ class TimelineRuntime:
 
     async def async_initialize(self) -> None:
         await self.store.async_load()
+        normalized_slot_timezones = self.store.normalize_slot_timezones(self.timezone)
         sources_changed = False
         pruned_unpriced_consumption = self.store.purge_unpriced_consumption_slots()
         for source in self.store.get_sources():
@@ -304,7 +308,7 @@ class TimelineRuntime:
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
             sources_changed = True
-        if sources_changed or pruned_unpriced_consumption:
+        if sources_changed or pruned_unpriced_consumption or normalized_slot_timezones:
             await self.store.async_save()
         await self._rebuild_from_store()
         await self._async_update_consumption_metrics(sample_now=True)

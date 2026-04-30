@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.4.8 - 2026-04-30
+
+### Fixed
+- Normalized persisted timeline slot timestamps into the Home Assistant local timezone before storing and merging them, so identical provider slots now overwrite correctly even when one source reports UTC timestamps and another reports local offsets.
+- Added one-time startup normalization that rewrites older mixed UTC/local slot keys into a single local-time representation and collapses resulting duplicates.
+- Kept the internal timeline store under the configured retention window for historical calculations such as `avg_last_3d` and `avg_last_7d`, while the exposed timeline meta sensor continues to communicate only local `today` and `tomorrow` slot data.
+
 ## 2026.4.7 - 2026-04-30
 
 ### Changed
