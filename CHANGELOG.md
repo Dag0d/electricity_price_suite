@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.5.3 - 2026-05-04
+
+### Changed
+- Moved the Tibber gross-price override option out of the generic energy-price formula step and into the Tibber provider configuration step, where it is actually relevant.
+- Polished German translations for provider and service text so wording is more natural in the Home Assistant UI.
+
 ## 2026.5.2 - 2026-05-04
 
 ### Added

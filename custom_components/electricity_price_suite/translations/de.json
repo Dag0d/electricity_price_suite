@@ -51,12 +51,13 @@
         "description": "Direkten Tibber-Zugriff konfigurieren. EPS liest die reine Energiekomponente direkt von Tibber.",
         "data": {
           "token": "API-Token",
-          "multiple_homes": "Account hat mehrere Homes"
+          "multiple_homes": "Konto hat mehrere Homes",
+          "use_tibber_provider_final_price": "Tibber-Endpreis statt EPS-Formel verwenden"
         }
       },
       "provider_tibber_home": {
         "title": "Provider (Tibber Home)",
-        "description": "Wähle den Tibber-Home-Index, den EPS verwenden soll, wenn der Account mehr als ein Home enthält.",
+        "description": "Wähle den Tibber-Home-Index, den EPS verwenden soll, wenn das Konto mehr als ein Home enthält.",
         "data": {
           "home_index": "Home-Index"
         }
@@ -70,16 +71,16 @@
       },
       "provider_energy_charts": {
         "title": "Provider (Energy-Charts)",
-        "description": "Direkten Energy-Charts-Zugriff für die ausgewählte Bidding Zone konfigurieren. Stündliche Timelines werden bei Bedarf intern aus Viertelstundenwerten gebildet.",
+        "description": "Direkten Energy-Charts-Zugriff für die ausgewählte Gebotszone konfigurieren. Stündliche Timelines werden bei Bedarf intern aus Viertelstundenwerten gebildet.",
         "data": {
-          "market_area": "Bidding Zone"
+          "market_area": "Gebotszone"
         }
       },
       "provider_entsoe": {
         "title": "Provider (ENTSO-E)",
-        "description": "Direkten ENTSO-E-Zugriff für die ausgewählte Bidding Zone konfigurieren.",
+        "description": "Direkten ENTSO-E-Zugriff für die ausgewählte Gebotszone konfigurieren.",
         "data": {
-          "market_area": "Bidding Zone",
+          "market_area": "Gebotszone",
           "token": "Security-Token"
         }
       },
@@ -89,8 +90,7 @@
         "data": {
           "energy_surcharge_percent": "Prozentualer Aufschlag (%)",
           "energy_surcharge_absolute": "Absoluter Aufschlag (EUR/kWh)",
-          "energy_tax_percent": "Energiesteuer / MwSt (%)",
-          "use_tibber_provider_final_price": "Tibber-Endpreis-Override verwenden"
+          "energy_tax_percent": "Energiesteuer / MwSt (%)"
         }
       },
       "timeline_consumption": {
@@ -162,12 +162,13 @@
         "description": "Direkten Tibber-Zugriff konfigurieren. EPS liest die reine Energiekomponente direkt von Tibber.",
         "data": {
           "token": "API-Token",
-          "multiple_homes": "Account hat mehrere Homes"
+          "multiple_homes": "Konto hat mehrere Homes",
+          "use_tibber_provider_final_price": "Tibber-Endpreis statt EPS-Formel verwenden"
         }
       },
       "provider_tibber_home": {
         "title": "Provider (Tibber Home)",
-        "description": "Wähle den Tibber-Home-Index, den EPS verwenden soll, wenn der Account mehr als ein Home enthält.",
+        "description": "Wähle den Tibber-Home-Index, den EPS verwenden soll, wenn das Konto mehr als ein Home enthält.",
         "data": {
           "home_index": "Home-Index"
         }
@@ -181,16 +182,16 @@
       },
       "provider_energy_charts": {
         "title": "Provider (Energy-Charts)",
-        "description": "Direkten Energy-Charts-Zugriff für die ausgewählte Bidding Zone konfigurieren. Stündliche Timelines werden bei Bedarf intern aus Viertelstundenwerten gebildet.",
+        "description": "Direkten Energy-Charts-Zugriff für die ausgewählte Gebotszone konfigurieren. Stündliche Timelines werden bei Bedarf intern aus Viertelstundenwerten gebildet.",
         "data": {
-          "market_area": "Bidding Zone"
+          "market_area": "Gebotszone"
         }
       },
       "provider_entsoe": {
         "title": "Provider (ENTSO-E)",
-        "description": "Direkten ENTSO-E-Zugriff für die ausgewählte Bidding Zone konfigurieren.",
+        "description": "Direkten ENTSO-E-Zugriff für die ausgewählte Gebotszone konfigurieren.",
         "data": {
-          "market_area": "Bidding Zone",
+          "market_area": "Gebotszone",
           "token": "Security-Token"
         }
       },
@@ -200,8 +201,7 @@
         "data": {
           "energy_surcharge_percent": "Prozentualer Aufschlag (%)",
           "energy_surcharge_absolute": "Absoluter Aufschlag (EUR/kWh)",
-          "energy_tax_percent": "Energiesteuer / MwSt (%)",
-          "use_tibber_provider_final_price": "Tibber-Endpreis-Override verwenden"
+          "energy_tax_percent": "Energiesteuer / MwSt (%)"
         }
       },
       "timeline_consumption": {
@@ -330,11 +330,11 @@
         },
         "overwrite": {
           "name": "Gespeicherte Heute/Morgen-Zeilen überschreiben",
-          "description": "Wenn true, werden bestehende Zeilen für heute und morgen vor dem erneuten Laden gelöscht."
+          "description": "Wenn aktiviert, werden bestehende Zeilen für heute und morgen vor dem erneuten Laden gelöscht."
         },
         "force_fetch": {
           "name": "Provider-Fetch erzwingen",
-          "description": "Wenn true, werden Provider-APIs gezielt gepollt, auch wenn die normale Refresh-Logik sie sonst überspringen würde."
+          "description": "Wenn aktiviert, werden Provider-APIs gezielt gepollt, auch wenn die normale Refresh-Logik sie sonst überspringen würde."
         }
       }
     },
@@ -360,7 +360,7 @@
         },
         "overwrite": {
           "name": "Zeilen für passende Tage überschreiben",
-          "description": "Wenn true, werden vorhandene Zeilen für dieselben lokalen Tage vor dem Injizieren gelöscht."
+          "description": "Wenn aktiviert, werden vorhandene Zeilen für dieselben lokalen Tage vor dem Injizieren gelöscht."
         }
       }
     },
@@ -406,7 +406,7 @@
         },
         "align_start_to_billing_slot": {
           "name": "Start auf Abrechnungsslot ausrichten",
-          "description": "Wenn true, werden Kandidatenstarts auf Abrechnungsslot-Grenzen begrenzt."
+          "description": "Wenn aktiviert, werden Kandidatenstarts auf Abrechnungsslot-Grenzen begrenzt."
         },
         "max_extra_cost_percent": {
           "name": "Maximaler Mehrpreis in Prozent",
@@ -588,7 +588,7 @@
         },
         "sequence_start": {
           "name": "Sequenzstart",
-          "description": "Startzeit HH:MM, wenn final_price_lines nur nackte Preiswerte enthält."
+          "description": "Startzeit HH:MM, wenn final_price_lines nur Preiswerte enthält."
         }
       }
     }

@@ -242,6 +242,12 @@ class _TimelineProviderFlowMixin:
             "token": source.get("token", ""),
             "home_index": int(source.get("home_index", 0)),
             CONF_MULTIPLE_HOMES: int(source.get("home_index", 0)) > 0,
+            CONF_USE_TIBBER_PROVIDER_FINAL_PRICE: _as_bool(
+                self._draft.get(
+                    CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                    DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                )
+            ),
         }
 
     def _provider_count_default(self) -> str:
@@ -314,6 +320,12 @@ class _TimelineProviderFlowMixin:
             defaults = self._provider_defaults("tibber")
             if user_input is not None:
                 token = str(user_input.get("token", "") or "").strip()
+                self._draft[CONF_USE_TIBBER_PROVIDER_FINAL_PRICE] = _as_bool(
+                    user_input.get(
+                        CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                        defaults[CONF_USE_TIBBER_PROVIDER_FINAL_PRICE],
+                    )
+                )
                 if not token:
                     errors["token"] = "required"
                 else:
@@ -325,6 +337,10 @@ class _TimelineProviderFlowMixin:
             schema = vol.Schema({
                 vol.Required("token", default=defaults["token"]): str,
                 vol.Required(CONF_MULTIPLE_HOMES, default=defaults[CONF_MULTIPLE_HOMES]): bool,
+                vol.Required(
+                    CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                    default=defaults[CONF_USE_TIBBER_PROVIDER_FINAL_PRICE],
+                ): bool,
             })
             return self.async_show_form(step_id="provider_tibber", data_schema=schema, errors=errors)
         except Exception:
@@ -405,12 +421,6 @@ class _TimelineProviderFlowMixin:
                         CONF_ENERGY_SURCHARGE_PERCENT: float(user_input[CONF_ENERGY_SURCHARGE_PERCENT]),
                         CONF_ENERGY_SURCHARGE_ABSOLUTE: float(user_input[CONF_ENERGY_SURCHARGE_ABSOLUTE]),
                         CONF_ENERGY_TAX_PERCENT: float(user_input[CONF_ENERGY_TAX_PERCENT]),
-                        CONF_USE_TIBBER_PROVIDER_FINAL_PRICE: _as_bool(
-                            user_input.get(
-                                CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
-                                DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
-                            )
-                        ),
                     }
                 )
                 return await self.async_step_timeline_consumption()
@@ -418,10 +428,6 @@ class _TimelineProviderFlowMixin:
                 vol.Required(CONF_ENERGY_SURCHARGE_PERCENT, default=defaults[CONF_ENERGY_SURCHARGE_PERCENT]): _float_selector(min_value=0, max_value=500, step=0.001),
                 vol.Required(CONF_ENERGY_SURCHARGE_ABSOLUTE, default=defaults[CONF_ENERGY_SURCHARGE_ABSOLUTE]): _float_selector(min_value=0, max_value=5, step=0.0001),
                 vol.Required(CONF_ENERGY_TAX_PERCENT, default=defaults[CONF_ENERGY_TAX_PERCENT]): _float_selector(min_value=0, max_value=100, step=0.001),
-                vol.Required(
-                    CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
-                    default=defaults[CONF_USE_TIBBER_PROVIDER_FINAL_PRICE],
-                ): bool,
             }
             schema = vol.Schema(schema_dict)
             return self.async_show_form(step_id="timeline_energy_pricing", data_schema=schema, errors=errors)

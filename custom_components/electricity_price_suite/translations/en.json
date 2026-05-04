@@ -51,7 +51,8 @@
         "description": "Configure direct Tibber access. EPS reads the raw energy component directly from Tibber.",
         "data": {
           "token": "API token",
-          "multiple_homes": "Account has multiple homes"
+          "multiple_homes": "Account has multiple homes",
+          "use_tibber_provider_final_price": "Use Tibber final price override"
         }
       },
       "provider_tibber_home": {
@@ -89,8 +90,7 @@
         "data": {
           "energy_surcharge_percent": "Percentage surcharge (%)",
           "energy_surcharge_absolute": "Absolute surcharge (EUR/kWh)",
-          "energy_tax_percent": "Energy tax (%)",
-          "use_tibber_provider_final_price": "Use Tibber final price override"
+          "energy_tax_percent": "Energy tax (%)"
         }
       },
       "timeline_consumption": {
@@ -162,7 +162,8 @@
         "description": "Configure direct Tibber access. EPS reads the raw energy component directly from Tibber.",
         "data": {
           "token": "API token",
-          "multiple_homes": "Account has multiple homes"
+          "multiple_homes": "Account has multiple homes",
+          "use_tibber_provider_final_price": "Use Tibber final price override"
         }
       },
       "provider_tibber_home": {
@@ -200,8 +201,7 @@
         "data": {
           "energy_surcharge_percent": "Percentage surcharge (%)",
           "energy_surcharge_absolute": "Absolute surcharge (EUR/kWh)",
-          "energy_tax_percent": "Energy tax (%)",
-          "use_tibber_provider_final_price": "Use Tibber final price override"
+          "energy_tax_percent": "Energy tax (%)"
         }
       },
       "timeline_consumption": {
