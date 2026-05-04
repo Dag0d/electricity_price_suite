@@ -26,7 +26,7 @@ from .const import (
     PLATFORMS,
     SERVICE_CLEANUP_TIMELINE_STORAGE,
     SERVICE_INJECT_SLOTS,
-    SERVICE_POLL_PROVIDERS,
+    SERVICE_SCHEDULE_TARIFF_CHANGE,
     SERVICE_MANAGE_PROFILE,
     SERVICE_MANAGE_PLAN,
     SERVICE_MANAGE_PROFILE_RUN,
@@ -41,10 +41,12 @@ _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-REFRESH_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Optional("sources"): [dict], vol.Optional("overwrite", default=False): cv.boolean})
-POLL_PROVIDERS_SCHEMA = vol.Schema({
+REFRESH_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
+    vol.Optional("sources"): [dict],
     vol.Optional("source_ids"): [cv.string],
+    vol.Optional("overwrite", default=False): cv.boolean,
+    vol.Optional("force_fetch", default=False): cv.boolean,
 })
 CLEANUP_TIMELINE_STORAGE_SCHEMA = vol.Schema({
     **cv.TARGET_SERVICE_FIELDS,
@@ -55,6 +57,22 @@ CLEANUP_TIMELINE_STORAGE_SCHEMA = vol.Schema({
     vol.Optional("clear_consumption", default=True): cv.boolean,
     vol.Optional("preserve_last_snapshot", default=False): cv.boolean,
     vol.Optional("dry_run", default=False): cv.boolean,
+})
+SCHEDULE_TARIFF_CHANGE_SCHEMA = vol.Schema({
+    **cv.TARGET_SERVICE_FIELDS,
+    vol.Required("mode"): vol.In(["manual", "derive_absolute_from_final_prices", "delete"]),
+    vol.Required("effective_from"): cv.string,
+    vol.Optional("energy_surcharge_percent"): vol.Coerce(float),
+    vol.Optional("energy_tax_percent"): vol.Coerce(float),
+    vol.Optional("energy_surcharge_absolute"): vol.Coerce(float),
+    vol.Optional("fixed_fee_monthly_amount"): vol.Coerce(float),
+    vol.Optional("fixed_fee_daily_amount"): vol.Coerce(float),
+    vol.Optional("fixed_fee_tax_percent"): vol.Coerce(float),
+    vol.Optional("fixed_fee_values_include_tax"): cv.boolean,
+    vol.Optional("current_month_fixed_fee_mode"): vol.In(["prorated", "full"]),
+    vol.Optional("billing_slot_minutes"): vol.Coerce(int),
+    vol.Optional("final_price_lines"): cv.string,
+    vol.Optional("sequence_start"): cv.string,
 })
 INJECT_SCHEMA = vol.Schema({**cv.TARGET_SERVICE_FIELDS, vol.Required(ATTR_SLOTS): [dict], vol.Optional("source_name", default="manual_inject"): cv.string, vol.Optional("source_priority", default=9999): vol.Coerce(int), vol.Optional("is_primary", default=False): cv.boolean, vol.Optional("overwrite", default=False): cv.boolean})
 OPTIMIZE_SCHEMA = vol.Schema({
@@ -145,16 +163,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     async def handle_refresh(call: ServiceCall) -> dict[str, Any]:
         runtime = await _resolve_timeline(call)
-        response = await runtime.async_refresh_timeline(override_sources=call.data.get("sources"), overwrite=call.data["overwrite"])
-        _write_timeline_entities(runtime)
-        return response
-
-    async def handle_poll_providers(call: ServiceCall) -> dict[str, Any]:
-        runtime = await _resolve_timeline(call)
+        override_sources = call.data.get("sources")
+        source_ids = call.data.get("source_ids")
+        if override_sources and source_ids:
+            raise HomeAssistantError("sources and source_ids cannot be used together")
         response = await runtime.async_refresh_timeline(
-            override_sources=call.data.get("source_ids"),
-            overwrite=False,
-            force_fetch=True,
+            override_sources=override_sources if override_sources is not None else source_ids,
+            overwrite=call.data["overwrite"],
+            force_fetch=call.data["force_fetch"],
         )
         _write_timeline_entities(runtime)
         return response
@@ -182,6 +198,29 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             preserve_last_snapshot=bool(call.data["preserve_last_snapshot"]),
             dry_run=bool(call.data["dry_run"]),
         )
+        _write_timeline_entities(runtime)
+        return response
+
+    async def handle_schedule_tariff_change(call: ServiceCall) -> dict[str, Any]:
+        runtime = await _resolve_timeline(call)
+        try:
+            response = await runtime.async_schedule_tariff_change(
+                mode=call.data["mode"],
+                effective_from=call.data["effective_from"],
+                energy_surcharge_percent=call.data.get("energy_surcharge_percent"),
+                energy_tax_percent=call.data.get("energy_tax_percent"),
+                fixed_fee_monthly_amount=call.data.get("fixed_fee_monthly_amount"),
+                fixed_fee_daily_amount=call.data.get("fixed_fee_daily_amount"),
+                fixed_fee_tax_percent=call.data.get("fixed_fee_tax_percent"),
+                fixed_fee_values_include_tax=call.data.get("fixed_fee_values_include_tax"),
+                current_month_fixed_fee_mode=call.data.get("current_month_fixed_fee_mode"),
+                billing_slot_minutes=call.data.get("billing_slot_minutes"),
+                energy_surcharge_absolute=call.data.get("energy_surcharge_absolute"),
+                final_price_lines=call.data.get("final_price_lines"),
+                sequence_start=call.data.get("sequence_start"),
+            )
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
         _write_timeline_entities(runtime)
         return response
 
@@ -291,8 +330,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
     service_defs = [
         (SERVICE_REFRESH_TIMELINE, handle_refresh, REFRESH_SCHEMA),
-        (SERVICE_POLL_PROVIDERS, handle_poll_providers, POLL_PROVIDERS_SCHEMA),
         (SERVICE_CLEANUP_TIMELINE_STORAGE, handle_cleanup_timeline_storage, CLEANUP_TIMELINE_STORAGE_SCHEMA),
+        (SERVICE_SCHEDULE_TARIFF_CHANGE, handle_schedule_tariff_change, SCHEDULE_TARIFF_CHANGE_SCHEMA),
         (SERVICE_INJECT_SLOTS, handle_inject, INJECT_SCHEMA),
         (SERVICE_OPTIMIZE_DEVICE, handle_optimize, OPTIMIZE_SCHEMA),
         (SERVICE_MANAGE_PLAN, handle_manage_plan, MANAGE_PLAN_SCHEMA),

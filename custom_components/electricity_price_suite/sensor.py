@@ -341,7 +341,14 @@ class TimelineStatusSensor(BaseSuiteEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
-            "status_values": ["no_data", "today_only", "tomorrow_only", "tomorrow_not_from_provider_1", "today_and_tomorrow"],
+            "status_values": [
+                "no_data",
+                "today_only",
+                "today_and_tomorrow_preview",
+                "tomorrow_only",
+                "tomorrow_not_from_provider_1",
+                "today_and_tomorrow",
+            ],
             "today_rows": self.runtime.latest_stats.attributes.get("today_rows", 0),
             "tomorrow_rows": self.runtime.latest_stats.attributes.get("tomorrow_rows", 0),
             "last_source_chain_fetch_at": self.runtime.latest_stats.attributes.get("last_source_chain_fetch_at"),

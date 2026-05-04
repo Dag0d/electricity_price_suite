@@ -89,7 +89,8 @@
         "data": {
           "energy_surcharge_percent": "Prozentualer Aufschlag (%)",
           "energy_surcharge_absolute": "Absoluter Aufschlag (EUR/kWh)",
-          "energy_tax_percent": "Energiesteuer / MwSt (%)"
+          "energy_tax_percent": "Energiesteuer / MwSt (%)",
+          "use_tibber_provider_final_price": "Tibber-Endpreis-Override verwenden"
         }
       },
       "timeline_consumption": {
@@ -199,7 +200,8 @@
         "data": {
           "energy_surcharge_percent": "Prozentualer Aufschlag (%)",
           "energy_surcharge_absolute": "Absoluter Aufschlag (EUR/kWh)",
-          "energy_tax_percent": "Energiesteuer / MwSt (%)"
+          "energy_tax_percent": "Energiesteuer / MwSt (%)",
+          "use_tibber_provider_final_price": "Tibber-Endpreis-Override verwenden"
         }
       },
       "timeline_consumption": {
@@ -316,15 +318,23 @@
   "services": {
     "refresh_timeline": {
       "name": "Timeline aktualisieren",
-      "description": "Heutige und morgige Slots aus konfigurierten Quellen laden und nach Priorität mergen.",
+      "description": "Heutige und morgige Slots aus konfigurierten Quellen laden oder ausgewählte Provider gezielt pollen und nach Priorität mergen.",
       "fields": {
         "sources": {
           "name": "Quellen-Override",
           "description": "Optionale temporäre Quellenliste nur für diesen Aufruf."
         },
+        "source_ids": {
+          "name": "Provider-Quellen-IDs",
+          "description": "Optionale konfigurierte Provider-Quellen-IDs zum Aktualisieren oder gezielten Pollen. Kann nicht mit einem Quellen-Override kombiniert werden."
+        },
         "overwrite": {
           "name": "Gespeicherte Heute/Morgen-Zeilen überschreiben",
           "description": "Wenn true, werden bestehende Zeilen für heute und morgen vor dem erneuten Laden gelöscht."
+        },
+        "force_fetch": {
+          "name": "Provider-Fetch erzwingen",
+          "description": "Wenn true, werden Provider-APIs gezielt gepollt, auch wenn die normale Refresh-Logik sie sonst überspringen würde."
         }
       }
     },
@@ -487,6 +497,98 @@
         "program_display_name": {
           "name": "Programm-Anzeigename",
           "description": "Menschenlesbarer Programmname, der bei neu angelegten oder aktualisierten Profilen gespeichert wird. Nur verwendet für mode=start."
+        }
+      }
+    },
+    "cleanup_timeline_storage": {
+      "name": "Timeline-Speicher bereinigen",
+      "description": "Einmaliger Bereinigungshelfer zum Zurücksetzen von Timeline-Laufzeitdaten, wobei Pläne und der letzte Verbrauchs-Snapshot optional erhalten bleiben.",
+      "fields": {
+        "planner_name": {
+          "name": "Planername",
+          "description": "Optionaler Fallback-Planername, wenn erhaltene Pläne keine vollständigen Planer-Metadaten mehr haben."
+        },
+        "preserve_plans": {
+          "name": "Pläne erhalten",
+          "description": "Gespeicherte Pläne behalten und fehlende Planer- oder Geräte-Metadaten bei Bedarf ergänzen."
+        },
+        "clear_sources": {
+          "name": "Gespeicherte Quellen löschen",
+          "description": "Gespeicherte Provider-Quellen aus dem Timeline-Store entfernen, damit die neue Provider-Kette aus dem Config Flow maßgeblich wird."
+        },
+        "clear_slots": {
+          "name": "Gespeicherte Slots löschen",
+          "description": "Persistierte Preis-Slots, Source-Health-Zustand und Refresh-Zeitstempel löschen."
+        },
+        "clear_consumption": {
+          "name": "Verbrauchsdaten löschen",
+          "description": "Persistierte Verbrauchs-Slots, Monats-Rollups und den letzten Verbrauchs-Snapshot löschen."
+        },
+        "preserve_last_snapshot": {
+          "name": "Letzten Snapshot erhalten",
+          "description": "Den letzten Verbrauchs-Snapshot beim Löschen der Verbrauchsdaten behalten, damit das nächste Sample die Delta-Verfolgung nach Mitternachts-Resets fortsetzen kann."
+        },
+        "dry_run": {
+          "name": "Trockenlauf",
+          "description": "Nur anzeigen, was bereinigt oder erhalten würde, ohne Änderungen zu schreiben."
+        }
+      }
+    },
+    "schedule_tariff_change": {
+      "name": "Tarifwechsel planen",
+      "description": "Einen zukünftigen Tarifwechsel planen, entweder über direkte Werte oder durch Ableitung des absoluten Aufschlags aus manuell eingegebenen Endkundenpreisen.",
+      "fields": {
+        "mode": {
+          "name": "Modus",
+          "description": "Direkte manuelle Werte verwenden, den absoluten Aufschlag aus Endkundenpreisen ableiten oder einen zukünftigen geplanten Wechsel löschen."
+        },
+        "effective_from": {
+          "name": "Gültig ab",
+          "description": "Lokales Wirksamkeitsdatum im Format JJJJ-MM-TT."
+        },
+        "energy_surcharge_percent": {
+          "name": "Prozentualer Aufschlag (%)",
+          "description": "Prozentualer Aufschlag, der ab dem Wirksamkeitsdatum gelten soll. Wenn leer, bleibt der aktuell aktive Wert bestehen."
+        },
+        "energy_tax_percent": {
+          "name": "Energiesteuer / MwSt. (%)",
+          "description": "Energiesteuer- oder Mehrwertsteuersatz, der ab dem Wirksamkeitsdatum gelten soll. Wenn leer, bleibt der aktuell aktive Wert bestehen."
+        },
+        "energy_surcharge_absolute": {
+          "name": "Absoluter Aufschlag (EUR/kWh)",
+          "description": "Absoluter Aufschlag in EUR/kWh. Nur im manuellen Modus erforderlich, wenn der aktuelle Wert überschrieben werden soll."
+        },
+        "fixed_fee_monthly_amount": {
+          "name": "Monatliche Grundgebühr",
+          "description": "Optionale monatliche Grundgebühr, die ab dem Wirksamkeitsdatum aktiv wird."
+        },
+        "fixed_fee_daily_amount": {
+          "name": "Tägliche Grundgebühr",
+          "description": "Optionale tägliche Grundgebühr, die ab dem Wirksamkeitsdatum aktiv wird."
+        },
+        "fixed_fee_tax_percent": {
+          "name": "Steuer auf Grundgebühr (%)",
+          "description": "Optionaler Steuersatz für die Grundgebühr."
+        },
+        "fixed_fee_values_include_tax": {
+          "name": "Grundgebühren inkl. Steuer",
+          "description": "Ob die angegebenen Grundgebühr-Werte bereits Steuer enthalten."
+        },
+        "current_month_fixed_fee_mode": {
+          "name": "Grundgebühr-Modus aktueller Monat",
+          "description": "Optionaler Behandlungsmodus für die monatliche Grundgebühr im aktuellen Monat."
+        },
+        "billing_slot_minutes": {
+          "name": "Abrechnungsauflösung",
+          "description": "Optionale zukünftige Abrechnungsauflösung, die ab dem Wirksamkeitsdatum aktiviert wird."
+        },
+        "final_price_lines": {
+          "name": "Endpreis-Zeilen",
+          "description": "Mehrzeilige Liste manueller Endpreise. Jede Zeile kann entweder HH:MM PREIS oder nur PREIS sein."
+        },
+        "sequence_start": {
+          "name": "Sequenzstart",
+          "description": "Startzeit HH:MM, wenn final_price_lines nur nackte Preiswerte enthält."
         }
       }
     }

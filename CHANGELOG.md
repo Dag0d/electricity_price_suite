@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.5.2 - 2026-05-04
+
+### Added
+- Added `schedule_tariff_change` for future tariff and billing-resolution changes, including manual scheduling, absolute-surcharge derivation from sampled final prices, and deletion of not-yet-active entries.
+- Added staged preview slots for next-day billing-resolution changes so tomorrow's price curve can be rendered before midnight without exposing the new slot model to planner or consumption logic.
+- Added `use_tibber_provider_final_price` to explicitly control whether Tibber gross prices should override EPS formula pricing.
+
+### Changed
+- Merged the old `poll_providers` behavior into `refresh_timeline` via `force_fetch`, `source_ids`, and `sources`.
+- Compacted historical storage: consumption keeps only today's raw slot rows, older daily values roll into `daily_rollups`, completed months promote into `monthly_rollups`, and historical timeline rows drop unused provider metadata.
+- Added full translations for `cleanup_timeline_storage` and `schedule_tariff_change`.
+
+### Fixed
+- Fixed ENTSO-E hourly requests by always building `60m` timelines from `15m` source rows when available and by correcting the downstream aggregation path.
+- Fixed scheduled billing-resolution transitions so midnight activation, preview promotion, status detection, and auto-poll re-arming work correctly across `15m` and `60m` day boundaries.
+- Fixed timeline completeness detection to evaluate slot resolution per day instead of globally, preventing valid `60m` days from being misclassified because older `15m` history was still present.
+- Fixed manual tariff scheduling so omitted tariff fields fall back to current active values instead of failing with missing-field errors.
+- Fixed negative-price and consumption-metric regression coverage around daily rollups and derived tariff changes.
+
 ## 2026.5.1 - 2026-05-01
 
 ### Changed

@@ -195,7 +195,12 @@ def _aggregate_15_to_60_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             continue
         bucket = start.replace(minute=0, second=0, microsecond=0)
         values = buckets.setdefault(bucket, {"market": [], "final": []})
-        values["market"].append(float(row.get("market_price_per_kwh", row["price_per_kwh"])))
+        market_value = row.get("market_price_per_kwh")
+        if market_value is None:
+            market_value = row.get("price_per_kwh")
+        if market_value is None:
+            continue
+        values["market"].append(float(market_value))
         provider_final = row.get("provider_final_price_per_kwh")
         if provider_final is not None:
             values["final"].append(float(provider_final))
@@ -506,7 +511,6 @@ async def _fetch_entsoe(hass: HomeAssistant, source: dict) -> list[dict[str, Any
         raise ValueError(f"entsoe_api_error:{reason_text}")
 
     rows: list[dict[str, Any]] = []
-    requested_resolution = "PT15M" if requested_duration == 15 else "PT60M"
     quarter_rows: list[dict[str, Any]] = []
     all_time_series = root.findall(".//ns:TimeSeries", _ENTSOE_XML_NS)
     filtered_time_series: list[ET.Element] = []
@@ -551,16 +555,20 @@ async def _fetch_entsoe(hass: HomeAssistant, source: dict) -> list[dict[str, Any
                 curve_type=curve_type,
                 points=period.findall("ns:Point", _ENTSOE_XML_NS),
             )
-            if resolution_raw == requested_resolution:
-                rows.extend(expanded_rows)
-            elif requested_duration == 60 and resolution_raw == "PT15M":
+            if resolution_raw == "PT15M":
+                if requested_duration == 15:
+                    rows.extend(expanded_rows)
                 quarter_rows.extend(expanded_rows)
+            elif requested_duration == 60 and resolution_raw == "PT60M":
+                # ENTSO-E 60-minute billing should still prefer quarter-hour rows and aggregate them.
+                # Keep native PT60M only as a fallback if no PT15M data exists at all.
+                rows.extend(expanded_rows)
+
+    if requested_duration == 60 and quarter_rows:
+        rows = _aggregate_15_to_60_rows(quarter_rows)
 
     if not rows:
-        if requested_duration == 60 and quarter_rows:
-            rows = _aggregate_15_to_60_rows(quarter_rows)
-        if not rows:
-            raise ValueError("no_entsoe_rows")
+        raise ValueError("no_entsoe_rows")
 
     deduped: dict[str, dict[str, Any]] = {}
     for row in rows:

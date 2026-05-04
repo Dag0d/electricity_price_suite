@@ -60,6 +60,15 @@ class ConsumptionMonthlyRollup(TypedDict):
     updated_at: str
 
 
+class ConsumptionDailyRollup(TypedDict):
+    """Persisted daily rollup for historical consumption slots."""
+
+    date: str
+    consumption_kwh: float
+    energy_cost: float
+    updated_at: str
+
+
 class ConsumptionPowerBucketRow(TypedDict):
     """Persisted compact 15-minute power bucket."""
 
@@ -181,6 +190,25 @@ class SourceAttempt:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+class TariffChangeScheduleEntry(TypedDict, total=False):
+    """Persisted scheduled tariff change entry."""
+
+    effective_from: str
+    mode: str
+    energy_surcharge_percent: float
+    energy_surcharge_absolute: float
+    energy_tax_percent: float
+    fixed_fee_monthly_amount: float
+    fixed_fee_daily_amount: float
+    fixed_fee_tax_percent: float
+    fixed_fee_values_include_tax: bool
+    current_month_fixed_fee_mode: str
+    billing_slot_minutes: int | None
+    derived_samples_total: int | None
+    derived_samples_used: int | None
+    created_at: str
 
 
 def utc_now_iso() -> str:

@@ -11,6 +11,7 @@ from homeassistant.helpers.storage import Store
 from .const import STORAGE_KEY_PREFIX, STORAGE_VERSION
 from .consumption_stats import month_key
 from .models import (
+    ConsumptionDailyRollup,
     ConsumptionMonthlyRollup,
     ConsumptionPowerActiveBlock,
     ConsumptionPowerBucketRow,
@@ -19,9 +20,11 @@ from .models import (
     SlotRecord,
     SlotRow,
     SourceConfig,
+    TariffChangeScheduleEntry,
     utc_now_iso,
 )
 from .time_utils import format_iso, parse_iso_aware
+from .tariff_schedule import round_absolute_surcharge
 
 
 class TimelineStore:
@@ -34,15 +37,19 @@ class TimelineStore:
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}{timeline_id}")
         self._data: dict = {
             "slots": {},
+            "staged_slots": {},
             "last_primary_refresh_at": None,
             "last_source_chain_fetch_at": None,
             "last_successful_source_id": None,
             "source_health": {},
             "plans": {},
             "sources": [],
+            "scheduled_tariff_changes": [],
+            "force_formula_from": None,
             "consumption": {
                 "last_snapshot": None,
                 "slots": {},
+                "daily_rollups": {},
                 "monthly_rollups": {},
                 "power_buckets": {},
                 "power_active_block": None,
@@ -93,6 +100,10 @@ class TimelineStore:
         by_start: dict[str, dict] = self._data.setdefault("slots", {})
         return merge_slot_dicts(by_start, slots)
 
+    def upsert_staged_slots(self, slots: list[SlotRecord]) -> dict[str, int]:
+        by_start: dict[str, dict] = self._data.setdefault("staged_slots", {})
+        return merge_slot_dicts(by_start, slots)
+
     def normalize_slot_timezones(self, timezone_name: str) -> int:
         """Normalize persisted slot keys into the HA timezone and collapse duplicates."""
 
@@ -120,10 +131,10 @@ class TimelineStore:
                     if row.get("provider_final_price_per_kwh") is not None
                     else None
                 ),
-                source_id=str(row["source_id"]),
-                source_priority=int(row["source_priority"]),
-                is_primary_source=bool(row["is_primary_source"]),
-                observed_at=str(row["observed_at"]),
+                source_id=str(row.get("source_id", "")),
+                source_priority=int(row.get("source_priority", 9999)),
+                is_primary_source=bool(row.get("is_primary_source", False)),
+                observed_at=str(row.get("observed_at", "")),
             )
             merge_slot_dicts(normalized, [slot])
             if local_key != key:
@@ -131,6 +142,44 @@ class TimelineStore:
 
         if changed:
             self._data["slots"] = normalized
+        return changed
+
+    def normalize_staged_slot_timezones(self, timezone_name: str) -> int:
+        tz = ZoneInfo(timezone_name)
+        by_start: dict[str, SlotRow] = self._data.setdefault("staged_slots", {})
+        if not by_start:
+            return 0
+
+        normalized: dict[str, SlotRow] = {}
+        changed = 0
+        for key, row in list(by_start.items()):
+            parsed = parse_iso_aware(row.get("start_time") or key)
+            if parsed is None:
+                by_start.pop(key, None)
+                changed += 1
+                continue
+
+            local_key = format_iso(parsed.astimezone(tz))
+            slot = SlotRecord(
+                start_time=local_key,
+                market_price_per_kwh=float(row["market_price_per_kwh"]),
+                price_per_kwh=float(row["price_per_kwh"]),
+                provider_final_price_per_kwh=(
+                    float(row["provider_final_price_per_kwh"])
+                    if row.get("provider_final_price_per_kwh") is not None
+                    else None
+                ),
+                source_id=str(row.get("source_id", "")),
+                source_priority=int(row.get("source_priority", 9999)),
+                is_primary_source=bool(row.get("is_primary_source", False)),
+                observed_at=str(row.get("observed_at", "")),
+            )
+            merge_slot_dicts(normalized, [slot])
+            if local_key != key:
+                changed += 1
+
+        if changed:
+            self._data["staged_slots"] = normalized
         return changed
 
     def purge_old_slots(self, timezone_name: str) -> int:
@@ -149,6 +198,22 @@ class TimelineStore:
         for key in old_keys:
             by_start.pop(key, None)
 
+        return len(old_keys)
+
+    def purge_old_staged_slots(self, timezone_name: str) -> int:
+        tz = ZoneInfo(timezone_name)
+        today = datetime.now(tz).date()
+        by_start: dict[str, dict] = self._data.setdefault("staged_slots", {})
+        old_keys: list[str] = []
+        for key in by_start:
+            dt = parse_iso_aware(key)
+            if dt is None:
+                old_keys.append(key)
+                continue
+            if dt.astimezone(tz).date() < today:
+                old_keys.append(key)
+        for key in old_keys:
+            by_start.pop(key, None)
         return len(old_keys)
 
     def clear_slots_for_dates(self, timezone_name: str, dates: set[datetime.date]) -> int:
@@ -172,11 +237,133 @@ class TimelineStore:
 
         return len(remove_keys)
 
+    def clear_slots_from_date(self, timezone_name: str, start_date: datetime.date) -> int:
+        tz = ZoneInfo(timezone_name)
+        by_start: dict[str, dict] = self._data.setdefault("slots", {})
+        remove_keys: list[str] = []
+        for key in by_start:
+            dt = parse_iso_aware(key)
+            if dt is None:
+                continue
+            if dt.astimezone(tz).date() >= start_date:
+                remove_keys.append(key)
+        for key in remove_keys:
+            by_start.pop(key, None)
+        return len(remove_keys)
+
+    def clear_staged_slots_from_date(self, timezone_name: str, start_date: datetime.date) -> int:
+        tz = ZoneInfo(timezone_name)
+        by_start: dict[str, dict] = self._data.setdefault("staged_slots", {})
+        remove_keys: list[str] = []
+        for key in by_start:
+            dt = parse_iso_aware(key)
+            if dt is None:
+                continue
+            if dt.astimezone(tz).date() >= start_date:
+                remove_keys.append(key)
+        for key in remove_keys:
+            by_start.pop(key, None)
+        return len(remove_keys)
+
+    def clear_staged_slots_for_dates(self, timezone_name: str, dates: set[datetime.date]) -> int:
+        if not dates:
+            return 0
+        tz = ZoneInfo(timezone_name)
+        by_start: dict[str, dict] = self._data.setdefault("staged_slots", {})
+        remove_keys: list[str] = []
+        for key in by_start:
+            dt = parse_iso_aware(key)
+            if dt is None:
+                continue
+            if dt.astimezone(tz).date() in dates:
+                remove_keys.append(key)
+        for key in remove_keys:
+            by_start.pop(key, None)
+        return len(remove_keys)
+
     def get_slots(self) -> list[SlotRow]:
         by_start: dict[str, SlotRow] = self._data.get("slots", {})
         rows = list(by_start.values())
         rows.sort(key=lambda item: item["start_time"])
         return rows
+
+    def get_staged_slots(self) -> list[SlotRow]:
+        by_start: dict[str, SlotRow] = self._data.get("staged_slots", {})
+        rows = list(by_start.values())
+        rows.sort(key=lambda item: item["start_time"])
+        return rows
+
+    def replace_slots(self, slots: list[SlotRow | SlotRecord]) -> None:
+        by_start: dict[str, dict] = {}
+        for slot in slots:
+            if isinstance(slot, SlotRecord):
+                by_start[slot.start_time] = slot.to_dict()
+            else:
+                by_start[str(slot["start_time"])] = dict(slot)
+        self._data["slots"] = by_start
+
+    def replace_staged_slots(self, slots: list[SlotRow | SlotRecord]) -> None:
+        by_start: dict[str, dict] = {}
+        for slot in slots:
+            if isinstance(slot, SlotRecord):
+                by_start[slot.start_time] = slot.to_dict()
+            else:
+                by_start[str(slot["start_time"])] = dict(slot)
+        self._data["staged_slots"] = by_start
+
+    def promote_staged_slots_for_date(self, timezone_name: str, target_date: datetime.date) -> int:
+        tz = ZoneInfo(timezone_name)
+        staged = self.get_staged_slots()
+        promote: list[SlotRecord] = []
+        keep: list[SlotRow] = []
+        for row in staged:
+            dt = parse_iso_aware(str(row["start_time"]))
+            if dt is None:
+                continue
+            if dt.astimezone(tz).date() == target_date:
+                promote.append(
+                    SlotRecord(
+                        start_time=str(row["start_time"]),
+                        market_price_per_kwh=float(row["market_price_per_kwh"]),
+                        price_per_kwh=float(row["price_per_kwh"]),
+                        provider_final_price_per_kwh=(
+                            float(row["provider_final_price_per_kwh"])
+                            if row.get("provider_final_price_per_kwh") is not None
+                            else None
+                        ),
+                        source_id=str(row.get("source_id", "")),
+                        source_priority=int(row.get("source_priority", 9999)),
+                        is_primary_source=bool(row.get("is_primary_source", False)),
+                        observed_at=str(row.get("observed_at", "")),
+                    )
+                )
+            else:
+                keep.append(row)
+        if not promote:
+            return 0
+        self.clear_slots_for_dates(timezone_name, {target_date})
+        self.upsert_slots(promote)
+        self.replace_staged_slots(keep)
+        return len(promote)
+
+    def compact_historical_slot_metadata(self, timezone_name: str) -> int:
+        tz = ZoneInfo(timezone_name)
+        today = datetime.now(tz).date()
+        by_start: dict[str, dict] = self._data.setdefault("slots", {})
+        changed = 0
+        for key, row in list(by_start.items()):
+            dt = parse_iso_aware(key)
+            if dt is None or dt.astimezone(tz).date() >= today:
+                continue
+            compacted = {
+                "start_time": str(row.get("start_time", key)),
+                "market_price_per_kwh": float(row["market_price_per_kwh"]),
+                "price_per_kwh": float(row["price_per_kwh"]),
+            }
+            if row != compacted:
+                by_start[key] = compacted
+                changed += 1
+        return changed
 
     def get_consumption_slots(self) -> list[ConsumptionSlotRow]:
         by_start: dict[str, ConsumptionSlotRow] = self._data.setdefault("consumption", {}).setdefault("slots", {})
@@ -186,6 +373,9 @@ class TimelineStore:
 
     def get_consumption_monthly_rollups(self) -> dict[str, ConsumptionMonthlyRollup]:
         return dict(self._data.setdefault("consumption", {}).setdefault("monthly_rollups", {}))
+
+    def get_consumption_daily_rollups(self) -> dict[str, ConsumptionDailyRollup]:
+        return dict(self._data.setdefault("consumption", {}).setdefault("daily_rollups", {}))
 
     def get_consumption_last_snapshot(self) -> dict | None:
         return self._data.setdefault("consumption", {}).get("last_snapshot")
@@ -271,6 +461,50 @@ class TimelineStore:
         existing["price_per_kwh"] = float(price_per_kwh) if price_per_kwh is not None else existing.get("price_per_kwh")
         existing["observed_at"] = utc_now_iso()
 
+    def compact_old_consumption_slots_to_daily_rollups(self, timezone_name: str) -> int:
+        tz = ZoneInfo(timezone_name)
+        today = datetime.now(tz).date()
+        consumption = self._data.setdefault("consumption", {})
+        by_start: dict[str, ConsumptionSlotRow] = consumption.setdefault("slots", {})
+        daily_rollups: dict[str, ConsumptionDailyRollup] = consumption.setdefault("daily_rollups", {})
+
+        remove_keys: list[str] = []
+        per_day: dict[str, tuple[float, float]] = {}
+        for key, row in by_start.items():
+            dt = parse_iso_aware(key)
+            if dt is None:
+                remove_keys.append(key)
+                continue
+            local_day = dt.astimezone(tz).date()
+            if local_day >= today:
+                continue
+            remove_keys.append(key)
+            bucket = local_day.isoformat()
+            prev_energy, prev_cost = per_day.get(bucket, (0.0, 0.0))
+            per_day[bucket] = (
+                prev_energy + float(row.get("consumption_kwh", 0.0) or 0.0),
+                prev_cost + float(row.get("energy_cost", 0.0) or 0.0),
+            )
+
+        for key in remove_keys:
+            by_start.pop(key, None)
+
+        for bucket, (energy, cost) in per_day.items():
+            existing = daily_rollups.get(bucket)
+            if existing is None:
+                daily_rollups[bucket] = {
+                    "date": bucket,
+                    "consumption_kwh": float(energy),
+                    "energy_cost": float(cost),
+                    "updated_at": utc_now_iso(),
+                }
+                continue
+            existing["consumption_kwh"] = float(existing.get("consumption_kwh", 0.0) or 0.0) + float(energy)
+            existing["energy_cost"] = float(existing.get("energy_cost", 0.0) or 0.0) + float(cost)
+            existing["updated_at"] = utc_now_iso()
+
+        return len(remove_keys)
+
     def purge_unpriced_consumption_slots(self) -> int:
         consumption = self._data.setdefault("consumption", {})
         by_start: dict[str, ConsumptionSlotRow] = consumption.setdefault("slots", {})
@@ -310,6 +544,59 @@ class TimelineStore:
 
         for key in remove_keys:
             by_start.pop(key, None)
+
+        for bucket, (energy, cost) in purged_month_totals.items():
+            existing = monthly_rollups.get(bucket)
+            if existing is None:
+                monthly_rollups[bucket] = {
+                    "month": bucket,
+                    "consumption_kwh": float(energy),
+                    "energy_cost": float(cost),
+                    "updated_at": utc_now_iso(),
+                }
+                continue
+            existing["consumption_kwh"] = float(existing.get("consumption_kwh", 0.0) or 0.0) + float(energy)
+            existing["energy_cost"] = float(existing.get("energy_cost", 0.0) or 0.0) + float(cost)
+            existing["updated_at"] = utc_now_iso()
+
+        return len(remove_keys)
+
+    def promote_completed_months_from_daily_rollups(self, timezone_name: str) -> int:
+        tz = ZoneInfo(timezone_name)
+        today = datetime.now(tz).date()
+        consumption = self._data.setdefault("consumption", {})
+        daily_rollups: dict[str, ConsumptionDailyRollup] = consumption.setdefault("daily_rollups", {})
+        monthly_rollups: dict[str, ConsumptionMonthlyRollup] = consumption.setdefault("monthly_rollups", {})
+
+        remove_keys: list[str] = []
+        purged_month_totals: dict[str, tuple[float, float]] = {}
+        for key, row in daily_rollups.items():
+            try:
+                local_day = datetime.fromisoformat(str(row.get("date") or key)).date()
+            except ValueError:
+                remove_keys.append(key)
+                continue
+            same_month_as_today = local_day.year == today.year and local_day.month == today.month
+            if same_month_as_today:
+                continue
+            previous_month = today.month - 1 if today.month > 1 else 12
+            previous_month_year = today.year if today.month > 1 else today.year - 1
+            same_month_as_previous = (
+                local_day.year == previous_month_year and local_day.month == previous_month
+            )
+            if today.day < 2 and same_month_as_previous:
+                continue
+            remove_keys.append(key)
+            local_dt = datetime.combine(local_day, datetime.min.time(), tzinfo=tz)
+            bucket = month_key(local_dt)
+            prev_energy, prev_cost = purged_month_totals.get(bucket, (0.0, 0.0))
+            purged_month_totals[bucket] = (
+                prev_energy + float(row.get("consumption_kwh", 0.0) or 0.0),
+                prev_cost + float(row.get("energy_cost", 0.0) or 0.0),
+            )
+
+        for key in remove_keys:
+            daily_rollups.pop(key, None)
 
         for bucket, (energy, cost) in purged_month_totals.items():
             existing = monthly_rollups.get(bucket)
@@ -382,9 +669,12 @@ class TimelineStore:
 
         if clear_slots:
             slots = self._data.setdefault("slots", {})
+            staged_slots = self._data.setdefault("staged_slots", {})
             result["cleared_slots"] = len(slots)
+            result["cleared_slots"] += len(staged_slots)
             if not dry_run:
                 self._data["slots"] = {}
+                self._data["staged_slots"] = {}
 
         if clear_sources:
             sources = self._data.setdefault("sources", [])
@@ -395,8 +685,10 @@ class TimelineStore:
         if clear_consumption:
             consumption = self._data.setdefault("consumption", {})
             slot_rows = consumption.setdefault("slots", {})
+            daily_rollups = consumption.setdefault("daily_rollups", {})
             monthly_rollups = consumption.setdefault("monthly_rollups", {})
             result["cleared_consumption_slots"] = len(slot_rows)
+            result["cleared_consumption_slots"] += len(daily_rollups)
             result["cleared_consumption_monthly_rollups"] = len(monthly_rollups)
             last_snapshot = consumption.get("last_snapshot")
             if preserve_last_snapshot and isinstance(last_snapshot, dict):
@@ -405,6 +697,7 @@ class TimelineStore:
                 if not preserve_last_snapshot:
                     consumption["last_snapshot"] = None
                 consumption["slots"] = {}
+                consumption["daily_rollups"] = {}
                 consumption["monthly_rollups"] = {}
                 consumption["power_buckets"] = {}
                 consumption["power_active_block"] = None
@@ -421,6 +714,49 @@ class TimelineStore:
 
     def get_sources(self) -> list[SourceConfig]:
         return list(self._data.get("sources", []))
+
+    def replace_sources(self, sources: list[SourceConfig]) -> None:
+        self._data["sources"] = list(sources)
+
+    def get_scheduled_tariff_changes(self) -> list[TariffChangeScheduleEntry]:
+        items = [_normalize_scheduled_tariff_change(item) for item in self._data.get("scheduled_tariff_changes", [])]
+        items.sort(key=lambda item: str(item.get("effective_from", "")))
+        return items
+
+    def replace_scheduled_tariff_changes(self, changes: list[TariffChangeScheduleEntry]) -> None:
+        ordered = sorted(
+            (_normalize_scheduled_tariff_change(item) for item in changes),
+            key=lambda item: str(item.get("effective_from", "")),
+        )
+        self._data["scheduled_tariff_changes"] = ordered
+
+    def upsert_scheduled_tariff_change(self, change: TariffChangeScheduleEntry) -> None:
+        changes = self.get_scheduled_tariff_changes()
+        effective_from = str(change.get("effective_from"))
+        replaced = False
+        for idx, existing in enumerate(changes):
+            if str(existing.get("effective_from")) == effective_from:
+                changes[idx] = dict(change)
+                replaced = True
+                break
+        if not replaced:
+            changes.append(dict(change))
+        self.replace_scheduled_tariff_changes(changes)
+
+    def delete_scheduled_tariff_change(self, effective_from: str) -> bool:
+        changes = self.get_scheduled_tariff_changes()
+        remaining = [item for item in changes if str(item.get("effective_from")) != str(effective_from)]
+        if len(remaining) == len(changes):
+            return False
+        self.replace_scheduled_tariff_changes(remaining)
+        return True
+
+    def get_force_formula_from(self) -> str | None:
+        value = self._data.get("force_formula_from")
+        return str(value) if isinstance(value, str) and value else None
+
+    def set_force_formula_from(self, effective_from: str | None) -> None:
+        self._data["force_formula_from"] = str(effective_from) if effective_from else None
 
     def upsert_source(self, source: SourceConfig) -> None:
         sources = self._data.setdefault("sources", [])
@@ -472,3 +808,31 @@ def merge_slot_dicts(by_start: dict[str, SlotRow], slots: list[SlotRecord]) -> d
             ignored += 1
 
     return {"inserted": inserted, "replaced": replaced, "ignored": ignored}
+
+
+def _normalize_scheduled_tariff_change(change: TariffChangeScheduleEntry | dict) -> TariffChangeScheduleEntry:
+    normalized: TariffChangeScheduleEntry = {}
+    allowed_keys = {
+        "effective_from",
+        "mode",
+        "energy_surcharge_percent",
+        "energy_surcharge_absolute",
+        "energy_tax_percent",
+        "fixed_fee_monthly_amount",
+        "fixed_fee_daily_amount",
+        "fixed_fee_tax_percent",
+        "fixed_fee_values_include_tax",
+        "current_month_fixed_fee_mode",
+        "billing_slot_minutes",
+        "derived_samples_total",
+        "derived_samples_used",
+        "created_at",
+    }
+    for key in allowed_keys:
+        if key in change:
+            normalized[key] = change[key]
+    if "energy_surcharge_absolute" in normalized and normalized["energy_surcharge_absolute"] is not None:
+        normalized["energy_surcharge_absolute"] = round_absolute_surcharge(
+            float(normalized["energy_surcharge_absolute"])
+        )
+    return normalized

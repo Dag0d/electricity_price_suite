@@ -44,6 +44,7 @@ from .const import (
     DEFAULT_ENERGY_SURCHARGE_ABSOLUTE,
     DEFAULT_ENERGY_SURCHARGE_PERCENT,
     DEFAULT_ENERGY_TAX_PERCENT,
+    DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
     DEFAULT_FIXED_FEE_DAILY_AMOUNT,
     DEFAULT_FIXED_FEE_MONTHLY_AMOUNT,
     DEFAULT_FIXED_FEE_TAX_PERCENT,
@@ -51,8 +52,9 @@ from .const import (
     DEFAULT_PLANNER_DEVICES,
     DEFAULT_ROUND_DECIMALS,
     DOMAIN,
+    CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
 )
-from .models import PlanPayload, PlanResult, SlotRecord, SourceConfig, TimelineStats
+from .models import PlanPayload, PlanResult, SlotRecord, SourceConfig, TariffChangeScheduleEntry, TimelineStats, utc_now_iso
 from .optimizer import optimize_runtime
 from .plan_manager import (
     build_no_candidate_result,
@@ -61,9 +63,15 @@ from .plan_manager import (
     load_profile_logger_profile,
     reoptimize_plan_payload,
 )
-from .providers import fetch_from_source, normalize_slots
+from .providers import fetch_from_source, normalize_slots, provider_supports_billing
 from .resolvers import resolve_logger_runtime
 from .store import TimelineStore
+from .tariff_schedule import (
+    derive_absolute_surcharge_from_final_prices,
+    parse_effective_from,
+    parse_final_price_lines,
+    round_absolute_surcharge,
+)
 from .timeline_stats import (
     build_timeline_stats,
     current_price_coverage_end,
@@ -145,6 +153,12 @@ class TimelineRuntime:
                 entry.data.get(CONF_ENERGY_TAX_PERCENT, DEFAULT_ENERGY_TAX_PERCENT),
             )
         )
+        self.use_tibber_provider_final_price = _as_bool(
+            entry.options.get(
+                CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                entry.data.get(CONF_USE_TIBBER_PROVIDER_FINAL_PRICE, DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE),
+            )
+        )
         self.fixed_fee_monthly_amount = float(
             entry.options.get(
                 CONF_FIXED_FEE_MONTHLY_AMOUNT,
@@ -220,24 +234,293 @@ class TimelineRuntime:
         )
         return gross
 
+    def _current_tariff_payload(self) -> dict[str, Any]:
+        return {
+            CONF_BILLING_SLOT_MINUTES: int(self.billing_slot_minutes),
+            CONF_ENERGY_SURCHARGE_PERCENT: float(self.energy_surcharge_percent),
+            CONF_ENERGY_SURCHARGE_ABSOLUTE: float(self.energy_surcharge_absolute),
+            CONF_ENERGY_TAX_PERCENT: float(self.energy_tax_percent),
+            CONF_USE_TIBBER_PROVIDER_FINAL_PRICE: bool(self.use_tibber_provider_final_price),
+            CONF_FIXED_FEE_MONTHLY_AMOUNT: float(self.fixed_fee_monthly_amount),
+            CONF_FIXED_FEE_DAILY_AMOUNT: float(self.fixed_fee_daily_amount),
+            CONF_FIXED_FEE_TAX_PERCENT: float(self.fixed_fee_tax_percent),
+            CONF_FIXED_FEE_VALUES_INCLUDE_TAX: bool(self.fixed_fee_values_include_tax),
+            CONF_CURRENT_MONTH_FIXED_FEE_MODE: str(self.current_month_fixed_fee_mode),
+        }
+
+    def _source_chain_with_billing(self, billing_slot_minutes: int) -> list[SourceConfig]:
+        updated: list[SourceConfig] = []
+        for idx, source in enumerate(self.source_chain):
+            normalized = self._normalize_source(dict(source), idx)
+            normalized["duration_minutes"] = int(billing_slot_minutes)
+            updated.append(normalized)
+        return updated
+
+    def _apply_runtime_tariff_payload(self, payload: dict[str, Any]) -> None:
+        self.billing_slot_minutes = int(payload.get(CONF_BILLING_SLOT_MINUTES, self.billing_slot_minutes))
+        self.energy_surcharge_percent = float(payload.get(CONF_ENERGY_SURCHARGE_PERCENT, self.energy_surcharge_percent))
+        self.energy_surcharge_absolute = float(payload.get(CONF_ENERGY_SURCHARGE_ABSOLUTE, self.energy_surcharge_absolute))
+        self.energy_tax_percent = float(payload.get(CONF_ENERGY_TAX_PERCENT, self.energy_tax_percent))
+        self.use_tibber_provider_final_price = bool(
+            payload.get(CONF_USE_TIBBER_PROVIDER_FINAL_PRICE, self.use_tibber_provider_final_price)
+        )
+        self.fixed_fee_monthly_amount = float(payload.get(CONF_FIXED_FEE_MONTHLY_AMOUNT, self.fixed_fee_monthly_amount))
+        self.fixed_fee_daily_amount = float(payload.get(CONF_FIXED_FEE_DAILY_AMOUNT, self.fixed_fee_daily_amount))
+        self.fixed_fee_tax_percent = float(payload.get(CONF_FIXED_FEE_TAX_PERCENT, self.fixed_fee_tax_percent))
+        self.fixed_fee_values_include_tax = bool(payload.get(CONF_FIXED_FEE_VALUES_INCLUDE_TAX, self.fixed_fee_values_include_tax))
+        self.current_month_fixed_fee_mode = str(
+            payload.get(CONF_CURRENT_MONTH_FIXED_FEE_MODE, self.current_month_fixed_fee_mode)
+        )
+
+    def _tariff_payload_after_change(
+        self,
+        base: dict[str, Any],
+        change: TariffChangeScheduleEntry,
+    ) -> dict[str, Any]:
+        updated = dict(base)
+        for key in (
+            CONF_ENERGY_SURCHARGE_PERCENT,
+            CONF_ENERGY_SURCHARGE_ABSOLUTE,
+            CONF_ENERGY_TAX_PERCENT,
+            CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+            CONF_FIXED_FEE_MONTHLY_AMOUNT,
+            CONF_FIXED_FEE_DAILY_AMOUNT,
+            CONF_FIXED_FEE_TAX_PERCENT,
+            CONF_FIXED_FEE_VALUES_INCLUDE_TAX,
+            CONF_CURRENT_MONTH_FIXED_FEE_MODE,
+            CONF_BILLING_SLOT_MINUTES,
+        ):
+            if key in change and change.get(key) is not None:
+                updated[key] = change[key]
+        return updated
+
+    def _effective_tariff_payload_for_date(self, target_day: date) -> dict[str, Any]:
+        payload = self._current_tariff_payload()
+        for change in self.store.get_scheduled_tariff_changes():
+            effective_from = parse_effective_from(change.get("effective_from"))
+            if effective_from <= target_day:
+                payload = self._tariff_payload_after_change(payload, change)
+        return payload
+
+    def _scheduled_resolution_change_cutoff(self) -> date | None:
+        tz = ZoneInfo(self.timezone)
+        today = datetime.now(tz).date()
+        current_billing = int(self.billing_slot_minutes)
+        cutoff: date | None = None
+        for change in self.store.get_scheduled_tariff_changes():
+            effective_from = parse_effective_from(change.get("effective_from"))
+            changed_billing = int(change.get(CONF_BILLING_SLOT_MINUTES) or current_billing)
+            if effective_from > today and changed_billing != current_billing:
+                if cutoff is None or effective_from < cutoff:
+                    cutoff = effective_from
+        return cutoff
+
+    def _should_defer_due_schedule_activation(self, now: datetime) -> bool:
+        if not self.has_consumption_tracking:
+            return False
+        if now.hour != 0 or now.minute != 0:
+            return False
+        today = now.date()
+        for change in self.store.get_scheduled_tariff_changes():
+            if parse_effective_from(change.get("effective_from")) <= today:
+                return True
+        return False
+
+    def _should_force_formula_for_date(self, target_day: date) -> bool:
+        raw = self.store.get_force_formula_from()
+        if not raw:
+            return False
+        try:
+            effective_from = parse_effective_from(raw)
+        except ValueError:
+            return False
+        return target_day >= effective_from
+
+    async def _persist_active_tariff_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        effective_from: date | None = None,
+    ) -> None:
+        new_billing = int(payload[CONF_BILLING_SLOT_MINUTES])
+        new_sources = self._source_chain_with_billing(new_billing)
+        merged_options = dict(self.entry.options)
+        merged_options.update(payload)
+        merged_options[CONF_SOURCE_CHAIN] = new_sources
+        self.hass.config_entries.async_update_entry(self.entry, options=merged_options)
+        self.source_chain = new_sources
+        self.store.replace_sources(new_sources)
+        if effective_from is not None:
+            current_force = self.store.get_force_formula_from()
+            if current_force:
+                current_date = parse_effective_from(current_force)
+                if effective_from < current_date:
+                    self.store.set_force_formula_from(effective_from.isoformat())
+            else:
+                self.store.set_force_formula_from(effective_from.isoformat())
+        self._apply_runtime_tariff_payload(payload)
+
+    def _reprice_stored_slots_from_date(self, start_date: date) -> int:
+        tz = ZoneInfo(self.timezone)
+        updated: list[SlotRecord] = []
+        changed = 0
+        for row in self.store.get_slots():
+            parsed = parse_iso_local(row["start_time"], tz)
+            if parsed is None:
+                continue
+            local_day = parsed.date()
+            market_price = float(row["market_price_per_kwh"])
+            final_price = float(row["price_per_kwh"])
+            provider_final = row.get("provider_final_price_per_kwh")
+            if local_day >= start_date:
+                payload = self._effective_tariff_payload_for_date(local_day)
+                final_price = (
+                    (
+                        market_price * (1.0 + (float(payload[CONF_ENERGY_SURCHARGE_PERCENT]) / 100.0))
+                        + float(payload[CONF_ENERGY_SURCHARGE_ABSOLUTE])
+                    )
+                    * (1.0 + (float(payload[CONF_ENERGY_TAX_PERCENT]) / 100.0))
+                )
+                provider_final = None
+                changed += 1
+            updated.append(
+                SlotRecord(
+                    start_time=str(row["start_time"]),
+                    market_price_per_kwh=market_price,
+                    price_per_kwh=final_price,
+                    provider_final_price_per_kwh=(float(provider_final) if provider_final is not None else None),
+                    source_id=str(row.get("source_id", "")),
+                    source_priority=int(row.get("source_priority", 9999)),
+                    is_primary_source=bool(row.get("is_primary_source", False)),
+                    observed_at=str(row.get("observed_at", "")),
+                )
+            )
+        if changed:
+            self.store.replace_slots(updated)
+        return changed
+
+    async def _refresh_staged_slots_for_date(
+        self,
+        *,
+        target_date: date,
+        billing_slot_minutes: int,
+        force_fetch: bool,
+    ) -> dict[str, int]:
+        if target_date != (datetime.now(ZoneInfo(self.timezone)).date() + timedelta(days=1)):
+            return {"inserted": 0, "replaced": 0, "ignored": 0}
+
+        active_sources = self._enabled_sources(self._source_chain_with_billing(billing_slot_minutes))
+        if not active_sources:
+            return {"inserted": 0, "replaced": 0, "ignored": 0}
+
+        merged_debug: dict[str, int] = {"inserted": 0, "replaced": 0, "ignored": 0}
+        for source in active_sources:
+            if not force_fetch and int(source.get("priority", 9999)) > 0:
+                best_priority = self._best_complete_priority_for_day(target_date)
+                if best_priority is not None and int(source.get("priority", 9999)) >= best_priority:
+                    continue
+            slots, attempt = await fetch_from_source(self.hass, source)
+            self.store.set_source_health(str(source.get("id")), attempt.success, attempt.reason)
+            if not slots:
+                continue
+            slots = self._filter_today_tomorrow_slots(slots)
+            slots = [
+                slot
+                for slot in slots
+                if (parsed := parse_iso_local(slot.start_time, ZoneInfo(self.timezone))) is not None
+                and parsed.date() == target_date
+            ]
+            if not slots:
+                continue
+            slots = self._finalize_slot_records(slots)
+            merged = self.store.upsert_staged_slots(slots)
+            for key in merged_debug:
+                merged_debug[key] += merged[key]
+        return merged_debug
+
+    async def _apply_due_scheduled_tariff_changes(self) -> dict[str, Any] | None:
+        tz = ZoneInfo(self.timezone)
+        today = datetime.now(tz).date()
+        changes = self.store.get_scheduled_tariff_changes()
+        due = [change for change in changes if parse_effective_from(change.get("effective_from")) <= today]
+        if not due:
+            return None
+
+        previous_billing = int(self.billing_slot_minutes)
+        payload = self._current_tariff_payload()
+        for change in due:
+            payload = self._tariff_payload_after_change(payload, change)
+        changed_billing = int(payload[CONF_BILLING_SLOT_MINUTES])
+
+        await self._persist_active_tariff_payload(payload, effective_from=today)
+        remaining = [change for change in changes if parse_effective_from(change.get("effective_from")) > today]
+        self.store.replace_scheduled_tariff_changes(remaining)
+
+        cleared_rows = 0
+        repriced_rows = 0
+        promoted_rows = 0
+        if changed_billing != previous_billing:
+            cleared_rows = self.store.clear_slots_from_date(self.timezone, today)
+            promoted_rows = self.store.promote_staged_slots_for_date(self.timezone, today)
+            self.store.clear_staged_slots_for_dates(self.timezone, {today})
+            await self.store.async_save()
+            if promoted_rows == 0:
+                await self.async_refresh_timeline(
+                    override_sources=None,
+                    only_today_tomorrow=True,
+                    overwrite=False,
+                    force_fetch=True,
+                    apply_schedules=False,
+                )
+        else:
+            repriced_rows = self._reprice_stored_slots_from_date(today)
+            await self.store.async_save()
+
+        await self._rebuild_from_store()
+        return {
+            "applied_changes": len(due),
+            "effective_from": today.isoformat(),
+            "repriced_rows": repriced_rows,
+            "cleared_rows": cleared_rows,
+            "promoted_rows": promoted_rows,
+            "billing_slot_minutes": int(self.billing_slot_minutes),
+        }
+
     def _finalize_slot_records(self, slots: list[SlotRecord]) -> list[SlotRecord]:
         tz = ZoneInfo(self.timezone)
         finalized: list[SlotRecord] = []
         for slot in slots:
             parsed_start = parse_iso_aware(slot.start_time)
             local_start = format_iso(parsed_start.astimezone(tz)) if parsed_start is not None else slot.start_time
+            local_day = parsed_start.astimezone(tz).date() if parsed_start is not None else datetime.now(tz).date()
+            payload = self._effective_tariff_payload_for_date(local_day)
             market_price = float(slot.market_price_per_kwh)
+            use_provider_final = (
+                slot.provider_final_price_per_kwh is not None
+                and self.use_tibber_provider_final_price
+                and str(slot.source_id).startswith("source_")
+                and "tibber" in str(slot.source_id)
+                and not self._should_force_formula_for_date(local_day)
+            )
             final_price = (
                 float(slot.provider_final_price_per_kwh)
-                if slot.provider_final_price_per_kwh is not None
-                else self._apply_energy_price_formula(market_price)
+                if use_provider_final
+                else (
+                    (
+                        market_price * (1.0 + (float(payload[CONF_ENERGY_SURCHARGE_PERCENT]) / 100.0))
+                        + float(payload[CONF_ENERGY_SURCHARGE_ABSOLUTE])
+                    )
+                    * (1.0 + (float(payload[CONF_ENERGY_TAX_PERCENT]) / 100.0))
+                )
             )
             finalized.append(
                 SlotRecord(
                     start_time=local_start,
                     market_price_per_kwh=market_price,
                     price_per_kwh=final_price,
-                    provider_final_price_per_kwh=slot.provider_final_price_per_kwh,
+                    provider_final_price_per_kwh=(
+                        slot.provider_final_price_per_kwh if use_provider_final else None
+                    ),
                     source_id=slot.source_id,
                     source_priority=slot.source_priority,
                     is_primary_source=slot.is_primary_source,
@@ -283,13 +566,27 @@ class TimelineRuntime:
     async def async_initialize(self) -> None:
         await self.store.async_load()
         normalized_slot_timezones = self.store.normalize_slot_timezones(self.timezone)
+        normalized_staged_slot_timezones = self.store.normalize_staged_slot_timezones(self.timezone)
         pruned_unpriced_consumption = self.store.purge_unpriced_consumption_slots()
+        compacted_consumption_slots = self.store.compact_old_consumption_slots_to_daily_rollups(self.timezone)
+        promoted_completed_months = self.store.promote_completed_months_from_daily_rollups(self.timezone)
+        compacted_historical_slots = self.store.compact_historical_slot_metadata(self.timezone)
+        purged_old_staged_slots = self.store.purge_old_staged_slots(self.timezone)
         if not self.store.get_sources():
             for idx, source in enumerate(self.source_chain):
                 self.store.upsert_source(self._normalize_source(source, idx))
             await self.store.async_save()
-        elif pruned_unpriced_consumption or normalized_slot_timezones:
+        elif (
+            pruned_unpriced_consumption
+            or compacted_consumption_slots
+            or promoted_completed_months
+            or compacted_historical_slots
+            or normalized_slot_timezones
+            or normalized_staged_slot_timezones
+            or purged_old_staged_slots
+        ):
             await self.store.async_save()
+        await self._apply_due_scheduled_tariff_changes()
         await self._rebuild_from_store()
         if self.has_consumption_tracking:
             self.latest_consumption_metrics = self._compute_consumption_metrics()
@@ -343,6 +640,7 @@ class TimelineRuntime:
         self.latest_stats = self._compute_timeline_stats()
         self.latest_consumption_metrics = self._compute_consumption_metrics()
         self._schedule_next_time_update()
+        self._schedule_next_poll_update()
 
     def _normalize_source(self, source: dict[str, Any], fallback_priority: int) -> SourceConfig:
         normalized: SourceConfig = dict(source)
@@ -379,7 +677,10 @@ class TimelineRuntime:
         only_today_tomorrow: bool = True,
         overwrite: bool = False,
         force_fetch: bool = False,
+        apply_schedules: bool = True,
     ) -> dict[str, Any]:
+        if apply_schedules:
+            await self._apply_due_scheduled_tariff_changes()
         attempt_log: list[dict[str, Any]] = []
         merged_debug: dict[str, int] = {"inserted": 0, "replaced": 0, "ignored": 0}
         used_sources: list[str] = []
@@ -415,9 +716,14 @@ class TimelineRuntime:
             today = datetime.now(tz).date()
             tomorrow = today + timedelta(days=1)
             cleared_rows = self.store.clear_slots_for_dates(self.timezone, {today, tomorrow})
+            self.store.clear_staged_slots_for_dates(self.timezone, {today, tomorrow})
             need_today, need_tomorrow = True, True
         else:
             need_today, need_tomorrow = self._missing_today_tomorrow_primary()
+
+        cutoff_date = self._scheduled_resolution_change_cutoff()
+        if cutoff_date == (datetime.now(ZoneInfo(self.timezone)).date() + timedelta(days=1)):
+            need_tomorrow = False
 
         for source in active_sources:
             # If primary already covers both days, no fallback query is needed.
@@ -436,6 +742,15 @@ class TimelineRuntime:
 
             if only_today_tomorrow:
                 slots = self._filter_today_tomorrow_slots(slots)
+            if cutoff_date is not None:
+                slots = [
+                    slot
+                    for slot in slots
+                    if (
+                        (parsed := parse_iso_local(slot.start_time, ZoneInfo(self.timezone))) is not None
+                        and parsed.date() < cutoff_date
+                    )
+                ]
             filtered_attempt = attempt.to_dict()
             filtered_attempt["rows"] = len(slots)
             attempt_log.append(filtered_attempt)
@@ -461,7 +776,18 @@ class TimelineRuntime:
                     self.store.set_last_primary_refresh()
             need_today, need_tomorrow = self._missing_today_tomorrow_primary()
 
+        staged_merge_debug = {"inserted": 0, "replaced": 0, "ignored": 0}
+        if only_today_tomorrow and cutoff_date == (datetime.now(ZoneInfo(self.timezone)).date() + timedelta(days=1)):
+            staged_billing = int(self._effective_tariff_payload_for_date(cutoff_date)[CONF_BILLING_SLOT_MINUTES])
+            staged_merge_debug = await self._refresh_staged_slots_for_date(
+                target_date=cutoff_date,
+                billing_slot_minutes=staged_billing,
+                force_fetch=force_fetch,
+            )
+
         self.store.purge_old_slots(self.timezone)
+        self.store.purge_old_staged_slots(self.timezone)
+        self.store.compact_historical_slot_metadata(self.timezone)
         if fetched_source_chain:
             self.store.set_last_source_chain_fetch()
         await self.store.async_save()
@@ -500,6 +826,7 @@ class TimelineRuntime:
             "has_primary_data_for_tomorrow": has_primary_tomorrow,
             "pending_primary": pending_primary,
             "merge_debug": merged_debug,
+            "staged_merge_debug": staged_merge_debug,
             "last_source_chain_fetch_at": self.store.last_source_chain_fetch_at,
             "cleared_rows": cleared_rows,
         }
@@ -675,6 +1002,223 @@ class TimelineRuntime:
         await self._rebuild_from_store()
         self.write_state_entities()
         return summary
+
+    async def async_schedule_tariff_change(
+        self,
+        *,
+        mode: str,
+        effective_from: str,
+        energy_surcharge_percent: float | None,
+        energy_tax_percent: float | None,
+        fixed_fee_monthly_amount: float | None,
+        fixed_fee_daily_amount: float | None,
+        fixed_fee_tax_percent: float | None,
+        fixed_fee_values_include_tax: bool | None,
+        current_month_fixed_fee_mode: str | None,
+        billing_slot_minutes: int | None,
+        energy_surcharge_absolute: float | None,
+        final_price_lines: str | None,
+        sequence_start: str | None,
+    ) -> dict[str, Any]:
+        effective_day = parse_effective_from(effective_from)
+        tz = ZoneInfo(self.timezone)
+        today = datetime.now(tz).date()
+
+        if mode == "delete":
+            if effective_day <= today:
+                raise ValueError("cannot_delete_active_or_past_schedule")
+            existing_change = next(
+                (
+                    change
+                    for change in self.store.get_scheduled_tariff_changes()
+                    if str(change.get("effective_from")) == effective_day.isoformat()
+                ),
+                None,
+            )
+            deleted = self.store.delete_scheduled_tariff_change(effective_day.isoformat())
+            if not deleted:
+                raise ValueError("scheduled_change_not_found")
+            self.store.clear_staged_slots_for_dates(self.timezone, {effective_day})
+            remaining = self.store.get_scheduled_tariff_changes()
+            current_force = self.store.get_force_formula_from()
+            next_force = remaining[0]["effective_from"] if remaining else None
+            if current_force:
+                try:
+                    current_force_date = parse_effective_from(current_force)
+                except ValueError:
+                    current_force_date = None
+                if current_force_date is not None and current_force_date <= today:
+                    next_force = current_force
+            self.store.set_force_formula_from(next_force)
+            repriced_rows = self._reprice_stored_slots_from_date(effective_day)
+            await self.store.async_save()
+            deleted_billing = int(existing_change.get(CONF_BILLING_SLOT_MINUTES) or self.billing_slot_minutes) if isinstance(existing_change, dict) else self.billing_slot_minutes
+            if deleted_billing != self.billing_slot_minutes:
+                await self.async_refresh_timeline(
+                    override_sources=None,
+                    only_today_tomorrow=True,
+                    overwrite=False,
+                    force_fetch=True,
+                    apply_schedules=False,
+                )
+            await self._rebuild_from_store()
+            self.write_state_entities()
+            return {
+                "status": "deleted",
+                "timeline_entity": self.timeline_entity_id,
+                "effective_from": effective_day.isoformat(),
+                "scheduled_count": len(remaining),
+                "repriced_rows": repriced_rows,
+            }
+
+        resolved_energy_surcharge_percent = (
+            float(self.energy_surcharge_percent)
+            if energy_surcharge_percent is None
+            else float(energy_surcharge_percent)
+        )
+        resolved_energy_surcharge_absolute = (
+            float(self.energy_surcharge_absolute)
+            if energy_surcharge_absolute is None
+            else float(energy_surcharge_absolute)
+        )
+        resolved_energy_tax_percent = (
+            float(self.energy_tax_percent)
+            if energy_tax_percent is None
+            else float(energy_tax_percent)
+        )
+
+        requested_billing = int(billing_slot_minutes or self.billing_slot_minutes)
+        if requested_billing not in {15, 60}:
+            raise ValueError("unsupported_billing_slot_minutes")
+
+        for source in self.source_chain:
+            provider_type = str(source.get("type") or "").strip()
+            if provider_type and not provider_supports_billing(provider_type, requested_billing):
+                raise ValueError(f"provider_does_not_support_billing:{provider_type}:{requested_billing}")
+
+        change: TariffChangeScheduleEntry = {
+            "effective_from": effective_day.isoformat(),
+            "mode": str(mode),
+            CONF_ENERGY_SURCHARGE_PERCENT: resolved_energy_surcharge_percent,
+            CONF_ENERGY_TAX_PERCENT: resolved_energy_tax_percent,
+            CONF_FIXED_FEE_MONTHLY_AMOUNT: float(
+                self.fixed_fee_monthly_amount if fixed_fee_monthly_amount is None else fixed_fee_monthly_amount
+            ),
+            CONF_FIXED_FEE_DAILY_AMOUNT: float(
+                self.fixed_fee_daily_amount if fixed_fee_daily_amount is None else fixed_fee_daily_amount
+            ),
+            CONF_FIXED_FEE_TAX_PERCENT: float(
+                self.fixed_fee_tax_percent if fixed_fee_tax_percent is None else fixed_fee_tax_percent
+            ),
+            CONF_FIXED_FEE_VALUES_INCLUDE_TAX: bool(
+                self.fixed_fee_values_include_tax if fixed_fee_values_include_tax is None else fixed_fee_values_include_tax
+            ),
+            CONF_CURRENT_MONTH_FIXED_FEE_MODE: str(
+                self.current_month_fixed_fee_mode
+                if current_month_fixed_fee_mode is None
+                else current_month_fixed_fee_mode
+            ),
+            CONF_BILLING_SLOT_MINUTES: requested_billing,
+            "created_at": utc_now_iso(),
+        }
+
+        derived_summary: dict[str, Any] = {}
+        if mode == "manual":
+            change[CONF_ENERGY_SURCHARGE_ABSOLUTE] = round_absolute_surcharge(
+                resolved_energy_surcharge_absolute
+            )
+        elif mode == "derive_absolute_from_final_prices":
+            parsed_lines = parse_final_price_lines(
+                effective_from=effective_day,
+                timezone_name=self.timezone,
+                billing_slot_minutes=requested_billing,
+                final_price_lines=str(final_price_lines or ""),
+                sequence_start=sequence_start,
+            )
+            tz = ZoneInfo(self.timezone)
+            active_day_rows = [
+                row
+                for row in self.store.get_slots()
+                if (parsed := parse_iso_local(row["start_time"], tz)) is not None and parsed.date() == effective_day
+            ]
+            staged_day_rows = [
+                row
+                for row in self.store.get_staged_slots()
+                if (parsed := parse_iso_local(row["start_time"], tz)) is not None and parsed.date() == effective_day
+            ]
+            day_rows = staged_day_rows or active_day_rows
+            if requested_billing == 60:
+                grouped: dict[datetime, list[float]] = {}
+                for row in day_rows:
+                    parsed = parse_iso_local(row["start_time"], tz)
+                    if parsed is None:
+                        continue
+                    bucket = parsed.replace(minute=0, second=0, microsecond=0)
+                    grouped.setdefault(bucket, []).append(float(row["market_price_per_kwh"]))
+                market_prices_by_start = {
+                    format_iso(bucket, timespec="seconds"): sum(values) / float(len(values))
+                    for bucket, values in grouped.items()
+                    if values
+                }
+            else:
+                market_prices_by_start = {
+                    str(row["start_time"]): float(row["market_price_per_kwh"])
+                    for row in day_rows
+                }
+            derived_summary = derive_absolute_surcharge_from_final_prices(
+                market_prices_by_start=market_prices_by_start,
+                final_prices=parsed_lines,
+                surcharge_percent=resolved_energy_surcharge_percent,
+                tax_percent=resolved_energy_tax_percent,
+            )
+            change[CONF_ENERGY_SURCHARGE_ABSOLUTE] = round_absolute_surcharge(
+                derived_summary["derived_absolute_surcharge"]
+            )
+            change["derived_samples_total"] = int(derived_summary["samples_total"])
+            change["derived_samples_used"] = int(derived_summary["samples_used"])
+        else:
+            raise ValueError("unsupported_schedule_mode")
+
+        self.store.upsert_scheduled_tariff_change(change)
+        current_force = self.store.get_force_formula_from()
+        if current_force:
+            if effective_day < parse_effective_from(current_force):
+                self.store.set_force_formula_from(effective_day.isoformat())
+        else:
+            self.store.set_force_formula_from(effective_day.isoformat())
+
+        applied_summary: dict[str, Any] | None = None
+        repriced_rows = 0
+        await self.store.async_save()
+        if effective_day <= today:
+            applied_summary = await self._apply_due_scheduled_tariff_changes()
+        else:
+            if requested_billing != self.billing_slot_minutes:
+                self.store.clear_staged_slots_for_dates(self.timezone, {effective_day})
+                self.store.clear_slots_from_date(self.timezone, effective_day)
+                await self.store.async_save()
+                if effective_day == (today + timedelta(days=1)):
+                    await self._refresh_staged_slots_for_date(
+                        target_date=effective_day,
+                        billing_slot_minutes=requested_billing,
+                        force_fetch=True,
+                    )
+            repriced_rows = self._reprice_stored_slots_from_date(effective_day)
+            await self.store.async_save()
+        await self._rebuild_from_store()
+        self.write_state_entities()
+        return {
+            "status": "ok",
+            "timeline_entity": self.timeline_entity_id,
+            "mode": mode,
+            "effective_from": effective_day.isoformat(),
+            "scheduled_count": len(self.store.get_scheduled_tariff_changes()),
+            "energy_surcharge_absolute": float(change[CONF_ENERGY_SURCHARGE_ABSOLUTE]),
+            "billing_slot_minutes": requested_billing,
+            "repriced_rows": repriced_rows,
+            "derived": derived_summary or None,
+            "applied": applied_summary,
+        }
 
     async def async_inject_slots(
         self,
@@ -1333,14 +1877,17 @@ class TimelineRuntime:
             taken_at=format_iso(now, timespec="seconds"),
             energy_kwh=current_energy_kwh,
         )
+        self.store.compact_old_consumption_slots_to_daily_rollups(self.timezone)
         self.store.purge_old_consumption_slots(
             self.timezone,
             DEFAULT_CONSUMPTION_RETENTION_DAYS,
         )
+        self.store.promote_completed_months_from_daily_rollups(self.timezone)
         self.store.purge_old_power_buckets(
             self.timezone,
             26,
         )
+        self.store.compact_historical_slot_metadata(self.timezone)
         await self.store.async_save()
         self.latest_consumption_metrics = self._compute_consumption_metrics()
 
@@ -1403,6 +1950,7 @@ class TimelineRuntime:
             return {}
         return build_consumption_metrics(
             slots=self.store.get_consumption_slots(),
+            daily_rollups=self.store.get_consumption_daily_rollups(),
             monthly_rollups=self.store.get_consumption_monthly_rollups(),
             power_buckets=self.store.get_consumption_power_buckets(),
             power_active_block=self.store.get_consumption_power_active_block(),
@@ -1581,6 +2129,15 @@ class TimelineRuntime:
         return next_slot_start_after(self.store.get_slots(), now, self.timezone)
 
     async def _handle_scheduled_time_update(self, _now: datetime) -> None:
+        local_now = _now.astimezone(ZoneInfo(self.timezone))
+        if self._should_defer_due_schedule_activation(local_now):
+            # Keep the last visible state stable until the consumption sample
+            # closes the old day and activates the new billing model.
+            self._schedule_next_time_update()
+            self._schedule_next_poll_update()
+            return
+
+        await self._apply_due_scheduled_tariff_changes()
         self.latest_stats = self._compute_timeline_stats()
         if self.has_consumption_tracking:
             self.latest_consumption_metrics = self._compute_consumption_metrics()
@@ -1622,11 +2179,11 @@ class TimelineRuntime:
         if status in {"no_data", "tomorrow_only"}:
             return next_minute_mark((1, 31), now)
 
-        if status == "today_only":
+        if status in {"today_only", "today_and_tomorrow_preview"}:
             start_window = now.replace(hour=12, minute=1, second=0, microsecond=0)
             if now < start_window:
                 return start_window
-            end_window = now.replace(hour=23, minute=31, second=0, microsecond=0)
+            end_window = now.replace(hour=23, minute=46, second=0, microsecond=0)
             if now > end_window:
                 return (now + timedelta(days=1)).replace(hour=12, minute=1, second=0, microsecond=0)
             return next_minute_mark((1, 16, 31, 46), now)
@@ -1635,7 +2192,7 @@ class TimelineRuntime:
             start_window = now.replace(hour=12, minute=1, second=0, microsecond=0)
             if now < start_window:
                 return start_window
-            end_window = now.replace(hour=23, minute=31, second=0, microsecond=0)
+            end_window = now.replace(hour=23, minute=46, second=0, microsecond=0)
             if now > end_window:
                 return (now + timedelta(days=1)).replace(hour=12, minute=1, second=0, microsecond=0)
             return next_minute_mark((1, 16, 31, 46), now)
@@ -1673,6 +2230,9 @@ class TimelineRuntime:
 
     async def _handle_consumption_sample(self, _now: datetime) -> None:
         await self._async_update_consumption_metrics(sample_now=True)
+        local_now = _now.astimezone(ZoneInfo(self.timezone))
+        if self._should_defer_due_schedule_activation(local_now):
+            await self._apply_due_scheduled_tariff_changes()
         self._write_time_based_sensors()
         self._schedule_next_consumption_sample()
 

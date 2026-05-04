@@ -1,6 +1,6 @@
 refresh_timeline:
   name: Refresh timeline
-  description: Refresh today and tomorrow slots from configured sources and merge by priority.
+  description: Refresh today and tomorrow slots from configured sources, or explicitly poll selected providers, and merge by priority.
   target:
     entity:
       domain: sensor
@@ -11,26 +11,24 @@ refresh_timeline:
       example: "[{\"id\": \"provider_1_smard\", \"type\": \"smard\", \"priority\": 0, \"market_area\": \"DE-LU\", \"duration_minutes\": 15}]"
       selector:
         object: {}
+    source_ids:
+      required: false
+      description: Optional list of configured provider source ids to refresh or explicitly poll, for example source_1_tibber or source_2_entsoe. Cannot be used together with sources.
+      example: "[\"source_1_tibber\", \"source_2_entsoe\"]"
+      selector:
+        object: {}
     overwrite:
       required: false
       description: If true, delete currently stored rows for today and tomorrow before fetching. Use this for explicit fresh re-fetches after tests or manual injections.
       example: "false"
       selector:
         boolean: {}
-
-poll_providers:
-  name: Poll providers
-  description: Manually poll configured provider APIs and merge returned slots by priority. If source_ids is omitted, all configured providers are queried.
-  target:
-    entity:
-      domain: sensor
-  fields:
-    source_ids:
+    force_fetch:
       required: false
-      description: Optional list of configured provider source ids to poll, for example source_1_tibber or source_2_entsoe.
-      example: "[\"source_1_tibber\", \"source_2_entsoe\"]"
+      description: If true, explicitly poll provider APIs even when the normal refresh logic would otherwise skip them.
+      example: "false"
       selector:
-        object: {}
+        boolean: {}
 
 cleanup_timeline_storage:
   name: Cleanup timeline storage
@@ -81,6 +79,121 @@ cleanup_timeline_storage:
       example: "false"
       selector:
         boolean: {}
+
+schedule_tariff_change:
+  name: Schedule tariff change
+  description: Schedule a future tariff change either from direct values or by deriving the absolute surcharge from manually entered final prices.
+  target:
+    entity:
+      domain: sensor
+  fields:
+    mode:
+      required: true
+      description: Use direct manual values or derive the absolute surcharge from final prices.
+      example: "derive_absolute_from_final_prices"
+      selector:
+        select:
+          options:
+            - "manual"
+            - "derive_absolute_from_final_prices"
+            - "delete"
+    effective_from:
+      required: true
+      description: Local effective date in YYYY-MM-DD.
+      example: "2026-06-01"
+      selector:
+        text: {}
+    energy_surcharge_percent:
+      required: false
+      description: Percentage surcharge that should apply from the effective date.
+      example: "0"
+      selector:
+        number:
+          min: -100
+          max: 1000
+          mode: box
+    energy_tax_percent:
+      required: false
+      description: Energy tax or VAT percentage that should apply from the effective date.
+      example: "19"
+      selector:
+        number:
+          min: -100
+          max: 1000
+          mode: box
+    energy_surcharge_absolute:
+      required: false
+      description: Absolute surcharge in EUR/kWh. Required in manual mode.
+      example: "0.16583"
+      selector:
+        number:
+          min: -10
+          max: 10
+          mode: box
+    fixed_fee_monthly_amount:
+      required: false
+      description: Optional monthly fixed fee amount that becomes active on the effective date.
+      example: "5.03"
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          mode: box
+    fixed_fee_daily_amount:
+      required: false
+      description: Optional daily fixed fee amount that becomes active on the effective date.
+      example: "0.3997"
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          mode: box
+    fixed_fee_tax_percent:
+      required: false
+      description: Optional fixed-fee tax percentage.
+      example: "19"
+      selector:
+        number:
+          min: -100
+          max: 1000
+          mode: box
+    fixed_fee_values_include_tax:
+      required: false
+      description: Whether the provided fixed-fee values already include tax.
+      example: "true"
+      selector:
+        boolean: {}
+    current_month_fixed_fee_mode:
+      required: false
+      description: Optional fixed-fee handling mode for the current month.
+      example: "prorated"
+      selector:
+        select:
+          options:
+            - "prorated"
+            - "full"
+    billing_slot_minutes:
+      required: false
+      description: Optional future billing resolution to activate on the effective date.
+      example: "60"
+      selector:
+        number:
+          min: 15
+          max: 60
+          mode: box
+    final_price_lines:
+      required: false
+      description: Multiline list of manual final prices. Each line can be either "HH:MM PRICE" or just "PRICE".
+      example: "00:00 0.2100\n00:15 0.3760\n00:30 0.2980"
+      selector:
+        text:
+          multiline: true
+    sequence_start:
+      required: false
+      description: Starting HH:MM used when final_price_lines only contains bare prices.
+      example: "13:00"
+      selector:
+        text: {}
 
 inject_slots:
   name: Inject slots

@@ -26,6 +26,7 @@ from .const import (
     CONF_ENERGY_SURCHARGE_ABSOLUTE,
     CONF_ENERGY_SURCHARGE_PERCENT,
     CONF_ENERGY_TAX_PERCENT,
+    CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
     CONF_ENTRY_TYPE,
     CONF_FIXED_FEE_DAILY_AMOUNT,
     CONF_FIXED_FEE_MONTHLY_AMOUNT,
@@ -45,6 +46,7 @@ from .const import (
     DEFAULT_ENERGY_SURCHARGE_ABSOLUTE,
     DEFAULT_ENERGY_SURCHARGE_PERCENT,
     DEFAULT_ENERGY_TAX_PERCENT,
+    DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
     DEFAULT_CURRENT_MONTH_FIXED_FEE_MODE,
     DEFAULT_FIXED_FEE_DAILY_AMOUNT,
     DEFAULT_FIXED_FEE_MONTHLY_AMOUNT,
@@ -403,6 +405,12 @@ class _TimelineProviderFlowMixin:
                         CONF_ENERGY_SURCHARGE_PERCENT: float(user_input[CONF_ENERGY_SURCHARGE_PERCENT]),
                         CONF_ENERGY_SURCHARGE_ABSOLUTE: float(user_input[CONF_ENERGY_SURCHARGE_ABSOLUTE]),
                         CONF_ENERGY_TAX_PERCENT: float(user_input[CONF_ENERGY_TAX_PERCENT]),
+                        CONF_USE_TIBBER_PROVIDER_FINAL_PRICE: _as_bool(
+                            user_input.get(
+                                CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                                DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                            )
+                        ),
                     }
                 )
                 return await self.async_step_timeline_consumption()
@@ -410,6 +418,10 @@ class _TimelineProviderFlowMixin:
                 vol.Required(CONF_ENERGY_SURCHARGE_PERCENT, default=defaults[CONF_ENERGY_SURCHARGE_PERCENT]): _float_selector(min_value=0, max_value=500, step=0.001),
                 vol.Required(CONF_ENERGY_SURCHARGE_ABSOLUTE, default=defaults[CONF_ENERGY_SURCHARGE_ABSOLUTE]): _float_selector(min_value=0, max_value=5, step=0.0001),
                 vol.Required(CONF_ENERGY_TAX_PERCENT, default=defaults[CONF_ENERGY_TAX_PERCENT]): _float_selector(min_value=0, max_value=100, step=0.001),
+                vol.Required(
+                    CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                    default=defaults[CONF_USE_TIBBER_PROVIDER_FINAL_PRICE],
+                ): bool,
             }
             schema = vol.Schema(schema_dict)
             return self.async_show_form(step_id="timeline_energy_pricing", data_schema=schema, errors=errors)
@@ -617,6 +629,7 @@ class ElectricityPriceSuiteConfigFlow(_TimelineProviderFlowMixin, config_entries
             CONF_ENERGY_SURCHARGE_PERCENT: DEFAULT_ENERGY_SURCHARGE_PERCENT,
             CONF_ENERGY_SURCHARGE_ABSOLUTE: DEFAULT_ENERGY_SURCHARGE_ABSOLUTE,
             CONF_ENERGY_TAX_PERCENT: DEFAULT_ENERGY_TAX_PERCENT,
+            CONF_USE_TIBBER_PROVIDER_FINAL_PRICE: DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
         }
 
     def _consumption_defaults(self) -> dict[str, Any]:
@@ -796,6 +809,10 @@ class ElectricityPriceSuiteOptionsFlow(_TimelineProviderFlowMixin, config_entrie
             CONF_ENERGY_SURCHARGE_PERCENT: current.get(CONF_ENERGY_SURCHARGE_PERCENT, DEFAULT_ENERGY_SURCHARGE_PERCENT),
             CONF_ENERGY_SURCHARGE_ABSOLUTE: current.get(CONF_ENERGY_SURCHARGE_ABSOLUTE, DEFAULT_ENERGY_SURCHARGE_ABSOLUTE),
             CONF_ENERGY_TAX_PERCENT: current.get(CONF_ENERGY_TAX_PERCENT, DEFAULT_ENERGY_TAX_PERCENT),
+            CONF_USE_TIBBER_PROVIDER_FINAL_PRICE: current.get(
+                CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
+            ),
         }
 
     def _consumption_defaults(self) -> dict[str, Any]:
@@ -843,6 +860,14 @@ class ElectricityPriceSuiteOptionsFlow(_TimelineProviderFlowMixin, config_entrie
                 CONF_ENERGY_SURCHARGE_PERCENT: float(self._draft.get(CONF_ENERGY_SURCHARGE_PERCENT, DEFAULT_ENERGY_SURCHARGE_PERCENT)),
                 CONF_ENERGY_SURCHARGE_ABSOLUTE: float(self._draft.get(CONF_ENERGY_SURCHARGE_ABSOLUTE, DEFAULT_ENERGY_SURCHARGE_ABSOLUTE)),
                 CONF_ENERGY_TAX_PERCENT: float(self._draft.get(CONF_ENERGY_TAX_PERCENT, DEFAULT_ENERGY_TAX_PERCENT)),
+                CONF_USE_TIBBER_PROVIDER_FINAL_PRICE: bool(
+                    _as_bool(
+                        self._draft.get(
+                            CONF_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                            DEFAULT_USE_TIBBER_PROVIDER_FINAL_PRICE,
+                        )
+                    )
+                ),
                 CONF_FIXED_FEE_MONTHLY_AMOUNT: float(
                     self._draft.get(CONF_FIXED_FEE_MONTHLY_AMOUNT, DEFAULT_FIXED_FEE_MONTHLY_AMOUNT)
                 ),

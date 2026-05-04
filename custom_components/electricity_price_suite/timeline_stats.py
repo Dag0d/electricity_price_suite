@@ -218,47 +218,66 @@ def build_timeline_stats(
     tz = ZoneInfo(timezone_name)
     now = datetime.now(tz)
     all_rows = store.get_slots()
+    staged_rows = store.get_staged_slots()
     today = now.date()
     tomorrow = today + timedelta(days=1)
 
     today_rows = rows_for_day(all_rows, today, tz)
     tomorrow_rows = rows_for_day(all_rows, tomorrow, tz)
-    detected_slot_minutes = detect_billing_slot_minutes(all_rows, timezone_name, fallback_slot_minutes)
-    current_price, current_price_start = current_price_for_now(all_rows, now, tz, detected_slot_minutes)
+    staged_tomorrow_rows = rows_for_day(staged_rows, tomorrow, tz)
+    display_tomorrow_rows = staged_tomorrow_rows or tomorrow_rows
+    active_horizon_rows = [*today_rows, *tomorrow_rows]
+    detected_slot_minutes = detect_billing_slot_minutes(active_horizon_rows, timezone_name, fallback_slot_minutes)
+    today_slot_minutes = detect_billing_slot_minutes(today_rows, timezone_name, detected_slot_minutes)
+    active_tomorrow_slot_minutes = detect_billing_slot_minutes(tomorrow_rows, timezone_name, detected_slot_minutes)
+    display_tomorrow_slot_minutes = detect_billing_slot_minutes(
+        display_tomorrow_rows,
+        timezone_name,
+        active_tomorrow_slot_minutes,
+    )
+    current_price, current_price_start = current_price_for_now(all_rows, now, tz, today_slot_minutes)
     current_market_price, current_market_price_start = current_price_for_now(
         all_rows,
         now,
         tz,
-        detected_slot_minutes,
+        today_slot_minutes,
         price_key="market_price_per_kwh",
     )
 
     card = [
         {"start_time": row["start_time"], "price_per_kwh": round_value(row["price_per_kwh"], round_decimals)}
-        for row in [*today_rows, *tomorrow_rows]
+        for row in [*today_rows, *display_tomorrow_rows]
     ]
     card.sort(key=lambda item: item["start_time"])
 
-    w_today = weighted_for_rows(today_rows, tz, detected_slot_minutes)
-    w_tomorrow = weighted_for_rows(tomorrow_rows, tz, detected_slot_minutes)
+    w_today = weighted_for_rows(today_rows, tz, today_slot_minutes)
+    w_tomorrow = weighted_for_rows(display_tomorrow_rows, tz, display_tomorrow_slot_minutes)
 
     past_3: list[tuple[float, float]] = []
     past_7: list[tuple[float, float]] = []
     for offset in range(1, 8):
         history_rows = rows_for_day(all_rows, today - timedelta(days=offset), tz)
-        weighted = weighted_for_rows(history_rows, tz, detected_slot_minutes)
+        history_slot_minutes = detect_billing_slot_minutes(history_rows, timezone_name, detected_slot_minutes)
+        weighted = weighted_for_rows(history_rows, tz, history_slot_minutes)
         if offset <= 3:
             past_3.extend(weighted)
         past_7.extend(weighted)
 
     avg_today = weighted_avg(w_today)
-    today_complete = day_is_complete(all_rows, today, tz, detected_slot_minutes)
-    tomorrow_complete = day_is_complete(all_rows, tomorrow, tz, detected_slot_minutes)
-    tomorrow_primary = has_primary_tomorrow_rows(all_rows, timezone_name, detected_slot_minutes)
+    today_complete = day_is_complete(all_rows, today, tz, today_slot_minutes)
+    tomorrow_complete = day_is_complete(all_rows, tomorrow, tz, active_tomorrow_slot_minutes)
+    tomorrow_primary = has_primary_tomorrow_rows(all_rows, timezone_name, active_tomorrow_slot_minutes)
+    preview_tomorrow_complete = bool(staged_tomorrow_rows) and day_is_complete(
+        staged_rows,
+        tomorrow,
+        tz,
+        display_tomorrow_slot_minutes,
+    )
     timeline_state = compute_timeline_status(
         today_complete=today_complete,
         tomorrow_complete=tomorrow_complete,
         has_primary_tomorrow=tomorrow_primary,
+        has_preview_tomorrow=bool(staged_tomorrow_rows),
     )
 
     attrs: dict[str, object] = {
@@ -276,8 +295,8 @@ def build_timeline_stats(
         "max_tomorrow": round_value(max((v for v, _ in w_tomorrow), default=None), round_decimals),
         "p20_tomorrow": round_value(weighted_q(w_tomorrow, 0.2), round_decimals),
         "p70_tomorrow": round_value(weighted_q(w_tomorrow, 0.7), round_decimals),
-        "min_tomorrow_time": extreme_time(tomorrow_rows, pick="min"),
-        "max_tomorrow_time": extreme_time(tomorrow_rows, pick="max"),
+        "min_tomorrow_time": extreme_time(display_tomorrow_rows, pick="min"),
+        "max_tomorrow_time": extreme_time(display_tomorrow_rows, pick="max"),
         "avg_last_3d": round_value(weighted_avg(past_3) if past_3 else None, round_decimals),
         "avg_last_7d": round_value(weighted_avg(past_7) if past_7 else None, round_decimals),
         "p20_last_3d": round_value(weighted_q(past_3, 0.2) if past_3 else None, round_decimals),
@@ -285,13 +304,17 @@ def build_timeline_stats(
         "p20_last_7d": round_value(weighted_q(past_7, 0.2) if past_7 else None, round_decimals),
         "p70_last_7d": round_value(weighted_q(past_7, 0.7) if past_7 else None, round_decimals),
         "today_rows": len(today_rows),
-        "tomorrow_rows": len(tomorrow_rows),
-        "expected_today_rows": expected_slots_for_day(today, tz, detected_slot_minutes),
-        "expected_tomorrow_rows": expected_slots_for_day(tomorrow, tz, detected_slot_minutes),
+        "tomorrow_rows": len(display_tomorrow_rows),
+        "expected_today_rows": expected_slots_for_day(today, tz, today_slot_minutes),
+        "expected_tomorrow_rows": expected_slots_for_day(tomorrow, tz, display_tomorrow_slot_minutes),
         "today_complete": today_complete,
-        "tomorrow_complete": tomorrow_complete,
-        "tomorrow_status": "ok" if tomorrow_complete else ("partial" if tomorrow_rows else "absent"),
-        "pending_primary": pending_primary(all_rows, timezone_name, detected_slot_minutes),
+        "tomorrow_complete": tomorrow_complete or preview_tomorrow_complete,
+        "tomorrow_status": (
+            "ok"
+            if tomorrow_complete
+            else ("preview" if preview_tomorrow_complete else ("partial" if tomorrow_rows else "absent"))
+        ),
+        "pending_primary": pending_primary(all_rows, timezone_name, active_tomorrow_slot_minutes),
         "last_primary_refresh_at": store.last_primary_refresh_at,
         "last_source_chain_fetch_at": store.last_source_chain_fetch_at,
         "last_successful_source_id": store.last_successful_source_id,
@@ -315,12 +338,20 @@ def build_timeline_stats(
     )
 
 
-def compute_timeline_status(*, today_complete: bool, tomorrow_complete: bool, has_primary_tomorrow: bool) -> str:
+def compute_timeline_status(
+    *,
+    today_complete: bool,
+    tomorrow_complete: bool,
+    has_primary_tomorrow: bool,
+    has_preview_tomorrow: bool,
+) -> str:
     """Compute the high-level timeline status."""
 
     if not today_complete and not tomorrow_complete:
         return "no_data"
     if today_complete and not tomorrow_complete:
+        if has_preview_tomorrow:
+            return "today_and_tomorrow_preview"
         return "today_only"
     if not today_complete and tomorrow_complete:
         return "tomorrow_only"

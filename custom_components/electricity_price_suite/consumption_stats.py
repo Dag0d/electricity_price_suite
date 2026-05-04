@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .models import (
+    ConsumptionDailyRollup,
     ConsumptionMonthlyRollup,
     ConsumptionPowerActiveBlock,
     ConsumptionPowerBucketRow,
@@ -67,6 +68,7 @@ def _fixed_fee_shares(
 def build_consumption_metrics(
     *,
     slots: list[ConsumptionSlotRow],
+    daily_rollups: dict[str, ConsumptionDailyRollup],
     monthly_rollups: dict[str, ConsumptionMonthlyRollup],
     power_buckets: list[ConsumptionPowerBucketRow],
     power_active_block: ConsumptionPowerActiveBlock | None,
@@ -96,6 +98,24 @@ def build_consumption_metrics(
     current_hour_energy = 0.0
     last_month_energy_raw = 0.0
     last_month_cost_raw = 0.0
+
+    for row in daily_rollups.values():
+        try:
+            local_day = datetime.fromisoformat(str(row.get("date"))).date()
+        except ValueError:
+            continue
+        energy = float(row.get("consumption_kwh", 0.0) or 0.0)
+        cost = float(row.get("energy_cost", 0.0) or 0.0)
+        day_energy[local_day] = day_energy.get(local_day, 0.0) + energy
+        day_cost[local_day] = day_cost.get(local_day, 0.0) + cost
+
+        if local_day >= month_start:
+            month_energy += energy
+            month_cost += cost
+
+        if local_day.year == last_month_year and local_day.month == last_month_month:
+            last_month_energy_raw += energy
+            last_month_cost_raw += cost
 
     for slot in slots:
         start = parse_iso_in_tz(slot.get("start_time"), tz)

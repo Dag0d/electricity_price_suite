@@ -89,7 +89,8 @@
         "data": {
           "energy_surcharge_percent": "Percentage surcharge (%)",
           "energy_surcharge_absolute": "Absolute surcharge (EUR/kWh)",
-          "energy_tax_percent": "Energy tax (%)"
+          "energy_tax_percent": "Energy tax (%)",
+          "use_tibber_provider_final_price": "Use Tibber final price override"
         }
       },
       "timeline_consumption": {
@@ -199,7 +200,8 @@
         "data": {
           "energy_surcharge_percent": "Percentage surcharge (%)",
           "energy_surcharge_absolute": "Absolute surcharge (EUR/kWh)",
-          "energy_tax_percent": "Energy tax (%)"
+          "energy_tax_percent": "Energy tax (%)",
+          "use_tibber_provider_final_price": "Use Tibber final price override"
         }
       },
       "timeline_consumption": {
@@ -316,15 +318,23 @@
   "services": {
     "refresh_timeline": {
       "name": "Refresh timeline",
-      "description": "Refresh today and tomorrow slots from configured sources and merge them by priority.",
+      "description": "Refresh today and tomorrow slots from configured sources, or explicitly poll selected providers, and merge them by priority.",
       "fields": {
         "sources": {
           "name": "Sources override",
           "description": "Optional temporary source list for this call."
         },
+        "source_ids": {
+          "name": "Provider source ids",
+          "description": "Optional configured provider source ids to refresh or explicitly poll. Cannot be combined with a sources override."
+        },
         "overwrite": {
           "name": "Overwrite stored today/tomorrow rows",
           "description": "If true, delete existing rows for today and tomorrow before fetching again."
+        },
+        "force_fetch": {
+          "name": "Force provider fetch",
+          "description": "If true, explicitly poll provider APIs even when the normal refresh logic would otherwise skip them."
         }
       }
     },
@@ -487,6 +497,98 @@
         "program_display_name": {
           "name": "Program display name",
           "description": "Human-readable program name to store for newly created or updated profiles. Only used for mode=start."
+        }
+      }
+    },
+    "cleanup_timeline_storage": {
+      "name": "Cleanup timeline storage",
+      "description": "One-time cleanup helper for resetting timeline runtime data while optionally preserving plans and the last consumption snapshot.",
+      "fields": {
+        "planner_name": {
+          "name": "Planner name",
+          "description": "Optional fallback planner name used when preserved plans are missing planner metadata."
+        },
+        "preserve_plans": {
+          "name": "Preserve plans",
+          "description": "Keep stored plans and enrich missing planner or device metadata where needed."
+        },
+        "clear_sources": {
+          "name": "Clear stored sources",
+          "description": "Remove stored provider source rows from the timeline store so the new config-flow provider chain becomes authoritative."
+        },
+        "clear_slots": {
+          "name": "Clear stored slots",
+          "description": "Delete persisted timeline price rows, source-health state, and refresh timestamps."
+        },
+        "clear_consumption": {
+          "name": "Clear consumption data",
+          "description": "Delete persisted consumption slot data, monthly consumption rollups, and the last consumption snapshot."
+        },
+        "preserve_last_snapshot": {
+          "name": "Preserve last snapshot",
+          "description": "Keep the last consumption snapshot while clearing consumption data so the next sample can continue delta tracking after midnight resets."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Preview what would be cleaned or preserved without writing changes."
+        }
+      }
+    },
+    "schedule_tariff_change": {
+      "name": "Schedule tariff change",
+      "description": "Schedule a future tariff change either from direct values or by deriving the absolute surcharge from manually entered final prices.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "Use direct manual values, derive the absolute surcharge from final prices, or delete a future scheduled change."
+        },
+        "effective_from": {
+          "name": "Effective from",
+          "description": "Local effective date in YYYY-MM-DD."
+        },
+        "energy_surcharge_percent": {
+          "name": "Percentage surcharge (%)",
+          "description": "Percentage surcharge that should apply from the effective date. If omitted, the current active value is kept."
+        },
+        "energy_tax_percent": {
+          "name": "Energy tax (%)",
+          "description": "Energy tax or VAT percentage that should apply from the effective date. If omitted, the current active value is kept."
+        },
+        "energy_surcharge_absolute": {
+          "name": "Absolute surcharge (EUR/kWh)",
+          "description": "Absolute surcharge in EUR/kWh. Required only for manual mode when you want to override the current value."
+        },
+        "fixed_fee_monthly_amount": {
+          "name": "Monthly fixed fee amount",
+          "description": "Optional monthly fixed fee amount that becomes active on the effective date."
+        },
+        "fixed_fee_daily_amount": {
+          "name": "Daily fixed fee amount",
+          "description": "Optional daily fixed fee amount that becomes active on the effective date."
+        },
+        "fixed_fee_tax_percent": {
+          "name": "Fixed fee tax (%)",
+          "description": "Optional fixed-fee tax percentage."
+        },
+        "fixed_fee_values_include_tax": {
+          "name": "Fixed fee values include tax",
+          "description": "Whether the provided fixed-fee values already include tax."
+        },
+        "current_month_fixed_fee_mode": {
+          "name": "Current month fixed fee mode",
+          "description": "Optional fixed-fee handling mode for the current month."
+        },
+        "billing_slot_minutes": {
+          "name": "Billing resolution",
+          "description": "Optional future billing resolution to activate on the effective date."
+        },
+        "final_price_lines": {
+          "name": "Final price lines",
+          "description": "Multiline list of manual final prices. Each line can be either HH:MM PRICE or just PRICE."
+        },
+        "sequence_start": {
+          "name": "Sequence start",
+          "description": "Starting HH:MM used when final_price_lines only contains bare prices."
         }
       }
     }
