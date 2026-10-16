@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026.10.1 - 2026-10-16
+
+### Fixed
+- Replaced the deprecated `via_device` parameter with `via_device_id` when linking planner devices to their timeline, resolving the Home Assistant warning ahead of its removal in Home Assistant 2027.8.
+- Ensure the timeline device is registered before linking planner devices, including during first-time setup. Existing device and entity identifiers remain unchanged.
+
 ## 2026.5.3 - 2026-05-04
 
 ### Changed

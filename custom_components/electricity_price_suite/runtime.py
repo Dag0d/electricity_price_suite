@@ -1925,12 +1925,16 @@ class TimelineRuntime:
         }
 
     def build_plan_device_info(self, planner_name: str, planner_slug: str) -> dict[str, Any]:
+        timeline_device = dr.async_get(self.hass).async_get_or_create(
+            config_entry_id=self.entry.entry_id,
+            **self.build_device_info(),
+        )
         return {
             "identifiers": {self.plan_device_identifier(planner_slug)},
             "name": f"{self.timeline_name} {planner_name}".strip(),
             "manufacturer": "Electricity Price Suite",
             "model": "Optimization Planner",
-            "via_device": self.timeline_device_identifier(),
+            "via_device_id": timeline_device.id,
         }
 
     def _compute_timeline_stats(self) -> TimelineStats:
